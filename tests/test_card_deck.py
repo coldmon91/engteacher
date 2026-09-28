@@ -58,6 +58,16 @@ class CardDeckTest(unittest.TestCase):
         self.assertEqual(deck.current(), {"id": 3})
         self.assertFalse(deck.newest())
 
+    def test_move_to_index(self):
+        deck = CardDeck()
+        deck.add(_records(1, 2, 3))
+        self.assertTrue(deck.move_to(0))
+        self.assertEqual(deck.current(), {"id": 1})
+        self.assertFalse(deck.move_to(0))
+        self.assertFalse(deck.move_to(3))
+        self.assertFalse(deck.move_to(-1))
+        self.assertEqual(deck.current(), {"id": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

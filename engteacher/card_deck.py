@@ -37,16 +37,16 @@ class CardDeck:
         return self._index == len(self._records) - 1
 
     def older(self) -> bool:
-        return self._move_to(self._index - 1)
+        return self.move_to(self._index - 1)
 
     def newer(self) -> bool:
-        return self._move_to(self._index + 1)
+        return self.move_to(self._index + 1)
 
     def newest(self) -> bool:
-        return self._move_to(len(self._records) - 1)
+        return self.move_to(len(self._records) - 1)
 
-    def _move_to(self, index: int) -> bool:
-        """Returns True if the shown card changed."""
+    def move_to(self, index: int) -> bool:
+        """Shows the card at 0-based `index`; returns True if the shown card changed."""
         if not 0 <= index < len(self._records) or index == self._index:
             return False
         self._index = index

@@ -42,7 +42,7 @@ class StripNonProseTest(unittest.TestCase):
             "```py\nx = 1\n```\n"
             "<pasted_content id=1>raw log</pasted_content> thanks"
         )
-        self.assertEqual(strip_non_prose(prompt), "Please check {A} in and\nthanks")
+        self.assertEqual(strip_non_prose(prompt), "Please check {A} in and\n{B}\nthanks")
 
     def test_slash_inside_word_is_kept(self):
         self.assertEqual(strip_non_prose("read and/or write"), "read and/or write")
@@ -67,6 +67,22 @@ class StripNonProseTest(unittest.TestCase):
     def test_placeholders_are_lettered_in_order_and_reused(self):
         prompt = "`[translation]` 섹션은 `원문` `개선` 과 중복이야 `[translation]` 은 제거"
         self.assertEqual(strip_non_prose(prompt), "{A} 섹션은 {B} {C} 과 중복이야 {A} 은 제거")
+
+    def test_fenced_code_becomes_placeholder_in_order(self):
+        prompt = "`foo` 대신\n```\nx = 1\n```\n이렇게 바꿔줘 ```x = 1``` 도 같아"
+        self.assertEqual(strip_non_prose(prompt), "{A} 대신\n{B}\n이렇게 바꿔줘 {B} 도 같아")
+
+    def test_unclosed_fence_runs_to_end(self):
+        self.assertEqual(strip_non_prose("이 코드 봐줘\n```\nx = 1\ny = 2"), "이 코드 봐줘\n{A}")
+
+    def test_unmatched_backticks_mid_sentence_stay_text(self):
+        for prompt in ('백틱 세 개 "```" 로 묶인 경우도 치환하도록 해줘',
+                       "이 코드 봐줘 ```\nx = 1\ny = 2"):
+            self.assertEqual(strip_non_prose(prompt), prompt)
+
+    def test_fence_inside_pasted_content_does_not_leak(self):
+        prompt = "<pasted_content id=1>log ``` unclosed</pasted_content> 이 로그를 분석해줘"
+        self.assertEqual(strip_non_prose(prompt), "이 로그를 분석해줘")
 
     def test_short_backtick_term_keeps_sentence(self):
         result = select_tutor_input("출력포맷 변경, `대안` 섹션은 제거", 2000)

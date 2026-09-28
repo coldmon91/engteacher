@@ -9,9 +9,16 @@ from engteacher.follow import LessonFollower
 from engteacher.hook import handle_event
 from engteacher.render import (
     ANSI_CODES,
+    DETAIL,
+    FIELD,
+    HEADER,
+    HEADLINE,
+    ITEM,
+    SECTION,
     Span,
     Style,
     has_alternatives,
+    lesson_blocks,
     lesson_lines,
     render_lesson,
 )
@@ -166,6 +173,32 @@ class LessonLinesTest(unittest.TestCase):
         from engteacher import gui
 
         self.assertEqual(set(gui.TAG_COLORS) | gui.FONT_TAGS, set(ANSI_CODES))
+
+
+class LessonBlocksTest(unittest.TestCase):
+    def test_blocks_carry_kinds_without_indentation(self):
+        record = {"time": "2026-09-28T13:04:00", "cwd": "/x/engteacher", "language": "en",
+                  "original": "I has went to school yesterday.", "lesson": LESSON}
+        blocks = lesson_blocks(record, show_alternatives=True)
+        self.assertEqual([block.kind for block in blocks], [
+            HEADER, HEADLINE, FIELD, FIELD,
+            SECTION, ITEM, DETAIL,
+            SECTION, ITEM,
+            SECTION, ITEM,
+            SECTION, ITEM,
+        ])
+        self.assertEqual([block.label for block in blocks if block.kind in (FIELD, SECTION)],
+                         ["원문", "개선", "변경", "대안", "어휘", "예문"])
+        self.assertEqual(blocks[6].spans, [Span("과거 시제")])
+        self.assertEqual(blocks[-1].spans, [Span("I went home early yesterday.")])
+        leading = [block.spans[0].text for block in blocks if block.spans]
+        self.assertFalse([text for text in leading if text.startswith(" ")])
+
+    def test_lines_match_blocks(self):
+        record = {"language": "en", "original": "I has went to school yesterday.", "lesson": LESSON}
+        self.assertEqual(len(lesson_lines(record, show_alternatives=True)),
+                         len(lesson_blocks(record, show_alternatives=True)))
+        self.assertEqual(lesson_lines(record)[-1], [Span("    · I went home early yesterday.")])
 
 
 if __name__ == "__main__":

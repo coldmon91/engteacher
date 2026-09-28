@@ -6,8 +6,17 @@ from typing import Literal
 
 Language = Literal["en", "ko"]
 
-_FENCED_CODE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
-_INLINE_CODE = re.compile(r"`([^`\n]*)`")
+# Markdown code, matched in one pass so placeholders are lettered in order of appearance.
+# A fence opens only at a line start and runs to a matching closing line or the end.
+# An inline span closes on a run of exactly as many backticks; an unmatched run is literal,
+# so a quoted '```' in the middle of a sentence stays text.
+# The span length cap keeps unmatched runs from scanning whole lines (quadratic time).
+MAX_INLINE_CODE_CHARS = 500
+_BACKTICK_CODE = re.compile(
+    r"^[ \t]*(?P<fence>`{3,})[^`\n]*$.*?(?:^[ \t]*(?P=fence)`*[ \t]*$|\Z)"
+    rf"|(?<!`)(?P<ticks>`+)(?!`)(?P<inline>[^\n]{{0,{MAX_INLINE_CODE_CHARS}}}?)(?<!`)(?P=ticks)(?!`)",
+    re.DOTALL | re.MULTILINE,
+)
 # Characters and shapes that mark a backtick span as code rather than a quoted sentence.
 _CODE_HINT = re.compile(r"[(){}\[\]<>=;$\\|/_*#@&^+]|\w\.\w|(?:^|\s)-")
 # Pasted content, system reminders and similar tagged blocks are not user prose.
@@ -51,30 +60,32 @@ def _placeholder_label(index: int) -> str:
     return label
 
 
-def _replace_inline_code(text: str) -> str:
-    """Keeps a backtick-quoted sentence as prose; other spans become {A}, {B}, ...
+def _replace_backtick_code(text: str) -> str:
+    """Replaces fenced blocks and inline spans with {A}, {B}, ...
 
-    Repeated spans share one label so the tutor sees they refer to the same thing.
+    An inline span holding a sentence is kept as prose instead.
+    Repeated code shares one label so the tutor sees it refers to the same thing.
     """
     labels: dict[str, str] = {}
 
     def replace(match: re.Match[str]) -> str:
-        content = match.group(1)
-        if _looks_like_prose(content):
-            return content
-        if not content.strip():
+        inline_content = match.group("inline")
+        if inline_content is not None and _looks_like_prose(inline_content):
+            return inline_content
+        code = match.group(0).strip().strip("`").strip()
+        if not code:
             return " "
-        if content not in labels:
-            labels[content] = _placeholder_label(len(labels))
-        return f"{{{labels[content]}}}"
+        if code not in labels:
+            labels[code] = _placeholder_label(len(labels))
+        return f"{{{labels[code]}}}"
 
-    return _INLINE_CODE.sub(replace, text)
+    return _BACKTICK_CODE.sub(replace, text)
 
 
 def strip_non_prose(prompt: str) -> str:
-    text = _FENCED_CODE.sub(" ", prompt)
-    text = _TAGGED_BLOCK.sub(" ", text)
-    text = _replace_inline_code(text)
+    # Tagged blocks go first: pasted content often holds fences that must not leak out.
+    text = _TAGGED_BLOCK.sub(" ", prompt)
+    text = _replace_backtick_code(text)
     text = _URL.sub(" ", text)
     text = _MENTION_OR_PATH.sub(" ", text)
     lines = (" ".join(line.split()) for line in text.splitlines())

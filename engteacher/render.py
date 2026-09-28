@@ -38,8 +38,27 @@ class Style:
 
 
 LABEL_WIDTH = 6
+ITEM_PREFIX = "    · "
+DETAIL_PREFIX = "      "
 # Older lessons list translation steps as issues; they repeat 원문 -> 개선, so they are hidden.
 HIDDEN_ISSUE_CATEGORIES = frozenset({"translation"})
+
+# Block kinds: what a line means, so each view can lay it out its own way.
+HEADER = "header"
+HEADLINE = "headline"
+FIELD = "field"
+SECTION = "section"
+ITEM = "item"
+DETAIL = "detail"
+
+
+class Block(NamedTuple):
+    """One logical line of a lesson, without the indentation or bullets a view adds."""
+
+    kind: str
+    spans: Line
+    # The field name for FIELD, the section name for SECTION; empty otherwise.
+    label: str = ""
 
 
 def _items(value: object) -> list[dict]:
@@ -50,32 +69,21 @@ def _strings(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str) and item] if isinstance(value, list) else []
 
 
-def _header(record: dict, with_rule: bool) -> Line:
+def _header(record: dict) -> Block:
     try:
         clock = datetime.fromisoformat(str(record.get("time"))).strftime("%H:%M:%S")
     except ValueError:
         clock = "--:--:--"
     project = Path(str(record.get("cwd") or "")).name or "-"
-    if not with_rule:
-        return [Span(f"{clock} · {project}", "dim")]
-    title = f"── {clock} · {project} "
-    return [Span(title + "─" * max(0, 48 - len(title)), "dim")]
+    return Block(HEADER, [Span(f"{clock} · {project}", "dim")])
 
 
-def _headline(record: dict, lesson: dict) -> Line:
+def _headline(record: dict, lesson: dict) -> Block:
     if record.get("language") == "ko":
-        return [Span("🌐 번역", "cyan")]
+        return Block(HEADLINE, [Span("🌐 번역", "cyan")])
     if lesson.get("needs_fix"):
-        return [Span("✎ 교정", "yellow")]
-    return [Span("✓ 자연스러운 문장", "green")]
-
-
-def _field(label: str, *value: Span) -> Line:
-    return [Span("  "), Span(label.ljust(LABEL_WIDTH), "dim"), *value]
-
-
-def _section(label: str) -> Line:
-    return [Span("  "), Span(label, "dim")]
+        return Block(HEADLINE, [Span("✎ 교정", "yellow")])
+    return Block(HEADLINE, [Span("✓ 자연스러운 문장", "green")])
 
 
 def _lesson(record: dict) -> dict:
@@ -90,19 +98,17 @@ def has_alternatives(record: dict) -> bool:
     return bool(_alternatives(_lesson(record)))
 
 
-def lesson_lines(record: dict, header_rule: bool = True,
-                 show_alternatives: bool = False) -> list[Line]:
-    """Lays out a lesson as lines of styled spans; tolerates malformed lesson fields.
+def lesson_blocks(record: dict, show_alternatives: bool = False) -> list[Block]:
+    """Breaks a lesson into logical lines; tolerates malformed lesson fields.
 
-    `header_rule=False` drops the separator rule for views that frame each lesson themselves.
     `show_alternatives=True` adds the 대안 section, which is hidden unless a view asks for it.
     """
     lesson = _lesson(record)
     original = str(record.get("original", ""))
     improved = str(lesson.get("improved", ""))
-    lines = [_header(record, header_rule), _headline(record, lesson), _field("원문", Span(original))]
+    blocks = [_header(record), _headline(record, lesson), Block(FIELD, [Span(original)], "원문")]
     if improved and improved != original:
-        lines.append(_field("개선", Span(improved, "bold")))
+        blocks.append(Block(FIELD, [Span(improved, "bold")], "개선"))
 
     issues = [
         issue
@@ -110,46 +116,76 @@ def lesson_lines(record: dict, header_rule: bool = True,
         if issue.get("category") not in HIDDEN_ISSUE_CATEGORIES
     ]
     if issues:
-        lines.append(_section("변경"))
+        blocks.append(Block(SECTION, [], "변경"))
         for issue in issues:
-            lines.append([
-                Span("    · "),
+            blocks.append(Block(ITEM, [
                 Span(f"[{issue.get('category', '')}]", "dim"),
                 Span(" "),
                 Span(str(issue.get("before", "")), "red"),
                 Span(" → "),
                 Span(str(issue.get("after", "")), "green"),
-            ])
-            lines.append([Span(f"      {issue.get('explanation_ko', '')}")])
+            ]))
+            blocks.append(Block(DETAIL, [Span(str(issue.get("explanation_ko", "")))]))
 
     alternatives = _alternatives(lesson) if show_alternatives else []
     if alternatives:
-        lines.append(_section("대안"))
-        lines.extend(
-            [Span(f"    · {alt.get('text', '')} "), Span(f"— {alt.get('nuance_ko', '')}", "dim")]
+        blocks.append(Block(SECTION, [], "대안"))
+        blocks.extend(
+            Block(ITEM, [Span(f"{alt.get('text', '')} "), Span(f"— {alt.get('nuance_ko', '')}", "dim")])
             for alt in alternatives
         )
 
     vocabulary = _items(lesson.get("vocabulary"))
     if vocabulary:
-        lines.append(_section("어휘"))
-        lines.extend(
-            [
-                Span("    · "),
+        blocks.append(Block(SECTION, [], "어휘"))
+        blocks.extend(
+            Block(ITEM, [
                 Span(str(v.get("term", "")), "bold"),
                 Span(" "),
                 Span(str(v.get("ipa", "")), "cyan"),
                 Span(" "),
                 Span(f"— {v.get('note_ko', '')}", "dim"),
-            ]
+            ])
             for v in vocabulary
         )
 
     examples = _strings(lesson.get("examples"))
     if examples:
-        lines.append(_section("예문"))
-        lines.extend([Span(f"    · {example}")] for example in examples)
-    return lines
+        blocks.append(Block(SECTION, [], "예문"))
+        blocks.extend(Block(ITEM, [Span(example)]) for example in examples)
+    return blocks
+
+
+def _prefixed(prefix: str, spans: Line) -> Line:
+    """Joins the prefix into a leading plain span, so plain text stays a single span."""
+    if spans and spans[0].tag is None:
+        return [Span(prefix + spans[0].text), *spans[1:]]
+    return [Span(prefix), *spans]
+
+
+def _block_line(block: Block, header_rule: bool) -> Line:
+    if block.kind == HEADER and header_rule:
+        title = f"── {''.join(span.text for span in block.spans)} "
+        return [Span(title + "─" * max(0, 48 - len(title)), "dim")]
+    if block.kind == FIELD:
+        return [Span("  "), Span(block.label.ljust(LABEL_WIDTH), "dim"), *block.spans]
+    if block.kind == SECTION:
+        return [Span("  "), Span(block.label, "dim")]
+    if block.kind == ITEM:
+        return _prefixed(ITEM_PREFIX, block.spans)
+    if block.kind == DETAIL:
+        return _prefixed(DETAIL_PREFIX, block.spans)
+    return block.spans
+
+
+def lesson_lines(record: dict, header_rule: bool = True,
+                 show_alternatives: bool = False) -> list[Line]:
+    """Lays out a lesson as indented lines of styled spans for text views.
+
+    `header_rule=False` drops the separator rule for views that frame each lesson themselves.
+    """
+    return [_block_line(block, header_rule)
+            for block in lesson_blocks(record, show_alternatives=show_alternatives)]
 
 
 def render_lesson(record: dict, style: Style) -> str:

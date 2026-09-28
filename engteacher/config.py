@@ -48,6 +48,10 @@ class Config:
         return self.home / "gui.json"
 
     @property
+    def notes_path(self) -> Path:
+        return self.home / "notes.json"
+
+    @property
     def error_log_path(self) -> Path:
         return self.home / "errors.log"
 
