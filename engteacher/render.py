@@ -78,12 +78,26 @@ def _section(label: str) -> Line:
     return [Span("  "), Span(label, "dim")]
 
 
-def lesson_lines(record: dict, header_rule: bool = True) -> list[Line]:
+def _lesson(record: dict) -> dict:
+    return record.get("lesson") if isinstance(record.get("lesson"), dict) else {}
+
+
+def _alternatives(lesson: dict) -> list[dict]:
+    return _items(lesson.get("alternatives"))
+
+
+def has_alternatives(record: dict) -> bool:
+    return bool(_alternatives(_lesson(record)))
+
+
+def lesson_lines(record: dict, header_rule: bool = True,
+                 show_alternatives: bool = False) -> list[Line]:
     """Lays out a lesson as lines of styled spans; tolerates malformed lesson fields.
 
     `header_rule=False` drops the separator rule for views that frame each lesson themselves.
+    `show_alternatives=True` adds the 대안 section, which is hidden unless a view asks for it.
     """
-    lesson = record.get("lesson") if isinstance(record.get("lesson"), dict) else {}
+    lesson = _lesson(record)
     original = str(record.get("original", ""))
     improved = str(lesson.get("improved", ""))
     lines = [_header(record, header_rule), _headline(record, lesson), _field("원문", Span(original))]
@@ -108,7 +122,7 @@ def lesson_lines(record: dict, header_rule: bool = True) -> list[Line]:
             ])
             lines.append([Span(f"      {issue.get('explanation_ko', '')}")])
 
-    alternatives = _items(lesson.get("alternatives"))
+    alternatives = _alternatives(lesson) if show_alternatives else []
     if alternatives:
         lines.append(_section("대안"))
         lines.extend(

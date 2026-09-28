@@ -42,7 +42,7 @@ def handle_event(event: dict, config: Config, request_lesson=tutor.request_lesso
         "original": tutor_input.text,
         "lesson": lesson,
     }
-    append_lesson(config.lessons_path, record)
+    append_lesson(config.lessons_path, record, config.retention_days)
     return record
 
 

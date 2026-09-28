@@ -12,13 +12,13 @@ Claude Code 프롬프트 제출
          ├─ input_filter : slash/bash 명령, 코드, URL·경로, 짧은 답변, 긴 붙여넣기 제외
          ├─ transcript   : 같은 세션의 최근 대화 6개를 맥락으로 추출
          ├─ tutor        : 격리된 `claude -p` (기본 Haiku) 또는 `codex exec` 호출 (`model.json` 의 provider)
-         └─ store        : ~/.local/state/engteacher/lessons.jsonl 에 추가
-bin/engteacher-view  ── lessons.jsonl 을 tail -f 처럼 읽어 표시
+         └─ store        : ~/.local/state/engteacher/lessons.jsonl 에 추가 (날짜가 바뀌면 지난 기록 압축 보관)
+bin/engteacher-view  ── lessons.jsonl 을 tail -f 처럼 읽어 표시 (부족한 history는 보관본에서 채움)
 bin/engteacher-gui   ── 같은 기록을 별도 창(Tkinter)에 표시
 ```
 
-- 영어 입력: 문법·어휘 교정, 대안 표현, IPA 발음 표기, 예문
-- 한국어 입력: 맥락을 반영한 영어 번역, 대안 표현, 어휘, 예문
+- 영어 입력: 문법·어휘 교정, IPA 발음 표기, 예문
+- 한국어 입력: 맥락을 반영한 영어 번역, 어휘, 예문
 - 메인 Claude 세션의 context와 응답에는 영향 없음 (hook stdout 출력 없음)
 
 ## 설치
@@ -77,11 +77,13 @@ bin/engteacher-gui --topmost --font-size 16   # 이번 실행만 저장된 설�
   - 항상 위에 표시 (Always on top)
   - 글자 크기 (9 ~ 32)
   - 튜터 제공자·모델: 목록(`haiku` / `sonnet` / `opus` / `fable`)에서 선택하거나 전체 모델 이름 입력
-- 화면 설정은 `$ENGTEACHER_HOME/gui.json`, 모델 설정은 `$ENGTEACHER_HOME/model.json` 에 저장되어 다음 실행에도 유지
+  - 기록 보관기간 (0 ~ 365일, 기본 14일, 0이면 삭제 안 함)
+- 화면 설정은 `$ENGTEACHER_HOME/gui.json`, 모델 설정은 `$ENGTEACHER_HOME/model.json`, 보관기간은 `$ENGTEACHER_HOME/storage.json` 에 저장되어 다음 실행에도 유지
 - 모델 변경은 hook이 매 입력마다 `model.json` 을 읽으므로 다음 입력부터 적용 (Claude Code 재시작 불필요)
 - 기록 1건씩 카드로 표시. 시간순으로 정렬되며 최신 기록이 마지막 번호 (`20 / 20`)
   - 이동: `◀` / `←` 이전 기록, `▶` / `→` 다음 기록, `최신` / `End` 최신 기록
   - 최신 카드를 보고 있을 때만 새 기록으로 이동 (이전 카드를 읽는 중이면 위치 유지, 개수만 갱신)
+  - `대안 보기` 버튼으로 대안 표현 펼치기/접기 (카드 이동 시 다시 접힘, 대안이 없는 기록은 비활성)
   - 카드 내용이 창보다 길면 카드 안에서만 스크롤
 - 종료: 창 닫기, `Cmd-W`, 실행한 터미널에서 `Ctrl-C`
 
@@ -97,17 +99,28 @@ bin/engteacher-gui --topmost --font-size 16   # 이번 실행만 저장된 설�
 | `ENGTEACHER_CONTEXT_MESSAGES` | `6` | 맥락으로 쓸 최근 대화 수 |
 | `ENGTEACHER_CONTEXT_CHARS` | `600` | 대화 1개당 최대 글자 수 |
 | `ENGTEACHER_MAX_PROMPT_CHARS` | `2000` | 이보다 긴 입력은 붙여넣기로 보고 제외 |
+| `ENGTEACHER_RETENTION_DAYS` | `storage.json` 값 (기본 `14`) | 지난 날짜 보관본 보관기간(일), 0이면 삭제 안 함. 설정하면 `storage.json` 보다 우선 |
 | `ENGTEACHER_PYTHON` | `python3` | 런처가 사용할 Python |
 
 ## 운영 참고
 
 - 비용·지연 (claude): 입력 1건당 Haiku 호출 1회, 약 6 ~ 11초, list price 기준 약 $0.004 (Claude 구독 사용량에서 차감)
-- 비용·지연 (codex): `gpt-6-luna` 기준 약 6 ~ 11초, 1건당 약 19k tokens (codex 기본 system prompt 포함, ChatGPT 구독 사용량에서 차감)
-- 기록 파일: 원문 프롬프트가 평문으로 저장되며 권한 `0600`. 자동 rotation 없음 (1건 약 2KB)
+- 비용·지연 (codex): `gpt-6-luna` 기준 약 7 ~ 12초, 1건당 약 1.4k input tokens (기본 prompt·skills 목록·tool 정의 제외, ChatGPT 구독 사용량에서 차감)
+- 기록 파일: 원문 프롬프트가 저장되며 모든 파일 권한 `0600` (1건 약 1.2KB, gzip 압축 시 약 1/3.7)
+  - `lessons.jsonl`: 오늘 기록 (평문 JSONL)
+  - `lessons-YYYY-MM-DD.jsonl.gz`: 지난 날짜 보관본. 시계가 되돌아가 같은 날짜가 다시 보관되면 `lessons-YYYY-MM-DD.2.jsonl.gz`
+  - 로테이션 시점: hook이 기록을 추가할 때 `lessons.jsonl` 의 마지막 수정 날짜가 오늘 이전이면 먼저 보관본으로 압축
+  - 삭제: 같은 시점에 보관기간이 지난 보관본 삭제 (보관기간 14일이면 오늘 기준 14일 전 날짜까지 유지)
+  - `lessons.lock`: 동시에 끝난 여러 세션의 로테이션·추가를 직렬화
+  - 보관본 직접 보기: `gzip -dc lessons-2026-09-27.jsonl.gz`
 - 실패 시: 세션에는 영향 없고 `errors.log` 에 한 줄 기록
 - 재귀 방지: 튜터 프로세스에 `ENGTEACHER_ACTIVE=1` 설정 + `--restricted` 로 user hook 미로딩
 - codex 격리: `--ignore-user-config` (MCP·notify·profile 미로딩), `--disable hooks`, `--disable plugins`, `--sandbox read-only`, `--ephemeral`
-- codex 한계: 전역 `~/.codex/AGENTS.md` 는 끌 수 있는 옵션이 없어 함께 로딩됨. 튜터 규칙을 developer instructions로 넣고 AGENTS.md를 무시하도록 지시해 영향 최소화
+- codex prompt 축소: `model_instructions_file` 로 codex 기본 prompt를 튜터 규칙으로 대체, `skills.include_instructions=false` 로 skills 목록 제외, `include_*_instructions=false`·`include_environment_context=false` 로 부가 섹션 제외
+- codex tool 제거: `--disable` (`apps`, `shell_tool`, `unified_exec`, `view_image`, `goals`, `multi_agent`, `image_generation`), `web_search="disabled"`, `tools.experimental_request_user_input.enabled=false`
+  - code mode(`exec`/`wait`)·multi-agent tool은 모델 카탈로그가 켜므로, `~/.codex/models_cache.json` 의 해당 모델 항목을 복사해 tool 관련 필드만 바꾼 카탈로그(`$ENGTEACHER_HOME/codex-model-catalog.json`)를 `model_catalog_json` 으로 전달
+  - 캐시에 모델이 없으면 카탈로그 없이 실행 (일부 tool이 남고 input tokens 약 4.6k)
+- codex 한계: 전역 `~/.codex/AGENTS.md` 는 끌 수 있는 옵션이 없어 함께 로딩됨. 튜터 규칙에 AGENTS.md를 무시하라는 지시를 넣어 영향 최소화
 - 한계: 텍스트 입력만 받으므로 실제 발음 교정은 불가. IPA 표기로 대신함
 
 ## 테스트

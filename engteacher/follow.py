@@ -1,8 +1,13 @@
-"""Incremental reader of the lesson log, like `tail -f` for JSONL records."""
+"""Incremental reader of the lesson log, like `tail -f` for JSONL records.
+
+History also reaches into the compressed archives of past days.
+"""
 
 import os
 from pathlib import Path
+from typing import BinaryIO
 
+from .archive import list_archives, read_archive_lines
 from .store import parse_lesson_line
 
 HISTORY_READ_BYTES = 256 * 1024
@@ -11,48 +16,73 @@ HISTORY_READ_BYTES = 256 * 1024
 class LessonFollower:
     def __init__(self, path: Path):
         self._path = path
-        self._position = 0
-        self._inode: int | None = None
+        self._file: BinaryIO | None = None
+        self._partial = b""
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            self._file = None
         self._partial = b""
 
     def history(self, limit: int) -> list[dict]:
         """Returns the latest `limit` lessons and moves the read position to the end."""
-        try:
-            with self._path.open("rb") as f:
-                stat = os.fstat(f.fileno())
-                start = max(0, stat.st_size - HISTORY_READ_BYTES)
-                f.seek(start)
-                data = f.read()
-                self._position = f.tell()
-                self._inode = stat.st_ino
-        except FileNotFoundError:
+        self.close()
+        lessons, read_whole_log = self._open_at_tail()
+        if limit <= 0:
             return []
+        if read_whole_log:
+            for archive in reversed(list_archives(self._path)):
+                if len(lessons) >= limit:
+                    break
+                lessons = self._parse(read_archive_lines(archive.path)) + lessons
+        return lessons[-limit:]
 
-        lines = data.split(b"\n")
+    def poll(self) -> list[dict]:
+        """Returns lessons appended since the previous call."""
+        lessons = []
+        if self._file is not None and not self._is_current():
+            # Rotated away: the open handle still reaches what was written before the rotation.
+            lessons += self._read_new() + self._parse([self._partial])
+            self.close()
+        if self._file is None:
+            try:
+                self._file = self._path.open("rb")
+            except FileNotFoundError:
+                return lessons
+        elif os.fstat(self._file.fileno()).st_size < self._file.tell():
+            # Truncated in place; start over from its beginning.
+            self._file.seek(0)
+            self._partial = b""
+        return lessons + self._read_new()
+
+    def _open_at_tail(self) -> tuple[list[dict], bool]:
+        """Opens the log and parses its last HISTORY_READ_BYTES; also says if that was all of it."""
+        try:
+            self._file = self._path.open("rb")
+        except FileNotFoundError:
+            return [], True
+        start = max(0, os.fstat(self._file.fileno()).st_size - HISTORY_READ_BYTES)
+        self._file.seek(start)
+        lines = self._file.read().split(b"\n")
         # The last element is an unterminated line (or empty); keep it for the next poll.
         self._partial = lines.pop()
         if start > 0 and lines:
             lines.pop(0)  # Cut in the middle by the offset.
-        lessons = self._parse(lines)
-        return lessons[-limit:] if limit > 0 else []
+        return self._parse(lines), start == 0
 
-    def poll(self) -> list[dict]:
-        """Returns lessons appended since the previous call."""
+    def _is_current(self) -> bool:
         try:
-            stat = self._path.stat()
+            path_stat = self._path.stat()
         except FileNotFoundError:
-            return []
-        if stat.st_ino != self._inode or stat.st_size < self._position:
-            # The log was rotated or truncated; start over from its beginning.
-            self._position, self._partial, self._inode = 0, b"", stat.st_ino
-        if stat.st_size == self._position:
-            return []
+            return False
+        file_stat = os.fstat(self._file.fileno())
+        return (path_stat.st_dev, path_stat.st_ino) == (file_stat.st_dev, file_stat.st_ino)
 
-        with self._path.open("rb") as f:
-            f.seek(self._position)
-            data = f.read()
-            self._position = f.tell()
-
+    def _read_new(self) -> list[dict]:
+        data = self._file.read()
+        if not data:
+            return []
         lines = (self._partial + data).split(b"\n")
         self._partial = lines.pop()
         return self._parse(lines)

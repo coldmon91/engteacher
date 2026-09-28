@@ -15,7 +15,8 @@ from .config import load_config
 from .follow import LessonFollower
 from .gui_settings import GuiSettings, clamp_font_size, load_gui_settings, save_gui_settings
 from .model_settings import ModelSettings, load_model_settings, save_model_settings
-from .render import lesson_lines
+from .render import has_alternatives, lesson_lines
+from .storage_settings import StorageSettings, load_storage_settings, save_storage_settings
 
 try:
     import tkinter as tk
@@ -37,6 +38,8 @@ TAG_COLORS = {
 # Tags rendered through a font change instead of a color.
 FONT_TAGS = {"bold"}
 EMPTY_DECK_MESSAGE = "아직 교정 기록이 없습니다."
+SHOW_ALTERNATIVES_LABEL = "대안 보기"
+HIDE_ALTERNATIVES_LABEL = "대안 숨기기"
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -67,6 +70,7 @@ class LessonWindow:
         self._watch_label = watch_label
         self._interval_ms = interval_ms
         self._deck = CardDeck()
+        self._show_alternatives = False
 
         self._body_font = tkfont.nametofont("TkTextFont").copy()
         self._body_font.configure(size=font_size)
@@ -84,6 +88,9 @@ class LessonWindow:
         nav_bar.pack(side="bottom", fill="x", padx=12, pady=(0, 4))
         self._newest_button = tk.Button(nav_bar, text="최신", command=self._show_newest)
         self._newest_button.pack(side="right")
+        self._alternatives_button = tk.Button(nav_bar, text=SHOW_ALTERNATIVES_LABEL,
+                                              command=self._toggle_alternatives)
+        self._alternatives_button.pack(side="left")
         nav_center = tk.Frame(nav_bar)
         nav_center.pack(expand=True)
         self._older_button = tk.Button(nav_center, text="◀", width=3, command=self._show_older)
@@ -155,7 +162,21 @@ class LessonWindow:
         if self._deck.newest():
             self._render_card()
 
+    def _toggle_alternatives(self) -> None:
+        self._show_alternatives = not self._show_alternatives
+        scroll_top = self._text.yview()[0]
+        self._draw_card()
+        self._text.yview_moveto(scroll_top)
+        self._update_alternatives_button()
+
     def _render_card(self) -> None:
+        """Shows the current card from the top, with its 대안 section folded."""
+        self._show_alternatives = False
+        self._draw_card()
+        self._text.yview_moveto(0)
+        self._update_nav()
+
+    def _draw_card(self) -> None:
         record = self._deck.current()
         self._text.configure(state="normal")
         self._text.delete("1.0", "end")
@@ -164,11 +185,10 @@ class LessonWindow:
         else:
             self._insert_lesson(record)
         self._text.configure(state="disabled")
-        self._text.yview_moveto(0)
-        self._update_nav()
 
     def _insert_lesson(self, record: dict) -> None:
-        for index, line in enumerate(lesson_lines(record, header_rule=False)):
+        lines = lesson_lines(record, header_rule=False, show_alternatives=self._show_alternatives)
+        for index, line in enumerate(lines):
             if index:
                 self._text.insert("end", "\n")
             for span in line:
@@ -180,6 +200,14 @@ class LessonWindow:
         at_newest = self._deck.is_at_newest()
         self._newer_button.configure(state="disabled" if at_newest else "normal")
         self._newest_button.configure(state="disabled" if at_newest else "normal")
+        self._update_alternatives_button()
+
+    def _update_alternatives_button(self) -> None:
+        record = self._deck.current()
+        available = record is not None and has_alternatives(record)
+        label = HIDE_ALTERNATIVES_LABEL if self._show_alternatives else SHOW_ALTERNATIVES_LABEL
+        self._alternatives_button.configure(text=label,
+                                            state="normal" if available else "disabled")
 
     def _update_scrollbar(self, first: str, last: str) -> None:
         """Shows the scrollbar only when the card is taller than its area."""
@@ -198,11 +226,12 @@ class SettingsController:
     """Applies settings to the running window and saves every change made in the dialog."""
 
     def __init__(self, root: "tk.Tk", settings: GuiSettings, settings_path: Path,
-                 model_settings_path: Path):
+                 model_settings_path: Path, storage_settings_path: Path):
         self._root = root
         self._settings = settings
         self._settings_path = settings_path
         self._model_settings_path = model_settings_path
+        self._storage_settings_path = storage_settings_path
         self._window: LessonWindow | None = None
         self._dialog: SettingsDialog | None = None
 
@@ -217,10 +246,12 @@ class SettingsController:
         if self._dialog is not None and self._dialog.is_open():
             self._dialog.focus()
             return
-        # Read on every open: the file is the source of truth shared with the hook.
+        # Read on every open: the files are the source of truth shared with the hook.
         model_settings = load_model_settings(self._model_settings_path)
-        self._dialog = SettingsDialog(self._root, self._settings, model_settings, self._change,
-                                      self._change_model, self._saved_model_for)
+        storage_settings = load_storage_settings(self._storage_settings_path)
+        self._dialog = SettingsDialog(self._root, self._settings, model_settings, storage_settings,
+                                      self._change, self._change_model, self._change_storage,
+                                      self._saved_model_for)
 
     def _change(self, settings: GuiSettings) -> None:
         if settings.always_on_top != self._settings.always_on_top:
@@ -238,6 +269,12 @@ class SettingsController:
         try:
             save_model_settings(self._model_settings_path, settings)
         except (OSError, ValueError) as error:
+            self._show_save_error(error)
+
+    def _change_storage(self, settings: StorageSettings) -> None:
+        try:
+            save_storage_settings(self._storage_settings_path, settings)
+        except OSError as error:
             self._show_save_error(error)
 
     def _saved_model_for(self, provider: str) -> str:
@@ -274,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
 
     controller = SettingsController(
         root, _startup_settings(load_gui_settings(config.gui_settings_path), args),
-        config.gui_settings_path, config.model_settings_path)
+        config.gui_settings_path, config.model_settings_path, config.storage_settings_path)
     if root.tk.call("tk", "windowingsystem") == "aqua":
         # Enables the app menu's Settings… item and its Cmd-, shortcut.
         root.createcommand("tk::mac::ShowPreferences", controller.open_dialog)

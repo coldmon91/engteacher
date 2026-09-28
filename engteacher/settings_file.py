@@ -15,15 +15,18 @@ def read_json_object(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def write_json_atomic(path: Path, data: dict) -> None:
+def write_text_atomic(path: Path, text: str) -> None:
     """Writes atomically so a crash mid-save, or a concurrent reader, never sees a partial file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
+            f.write(text)
         os.replace(tmp_name, path)
     except BaseException:
         os.unlink(tmp_name)
         raise
+
+
+def write_json_atomic(path: Path, data: dict) -> None:
+    write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")

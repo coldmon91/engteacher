@@ -7,7 +7,14 @@ from pathlib import Path
 from engteacher.config import load_config
 from engteacher.follow import LessonFollower
 from engteacher.hook import handle_event
-from engteacher.render import ANSI_CODES, Span, Style, lesson_lines, render_lesson
+from engteacher.render import (
+    ANSI_CODES,
+    Span,
+    Style,
+    has_alternatives,
+    lesson_lines,
+    render_lesson,
+)
 from engteacher.store import append_lesson
 
 LESSON = {
@@ -35,7 +42,9 @@ class HandleEventTest(unittest.TestCase):
 
         self.assertEqual(record["lesson"], LESSON)
         self.assertEqual(oct(os.stat(self.config.lessons_path).st_mode & 0o777), "0o600")
-        self.assertEqual(LessonFollower(self.config.lessons_path).history(5), [record])
+        follower = LessonFollower(self.config.lessons_path)
+        self.addCleanup(follower.close)
+        self.assertEqual(follower.history(5), [record])
 
     def test_skipped_prompt_does_not_call_tutor(self):
         def fail(*args):
@@ -55,8 +64,9 @@ class LessonFollowerTest(unittest.TestCase):
 
     def test_history_then_new_lines(self):
         for i in range(3):
-            append_lesson(self.path, {"n": i})
+            append_lesson(self.path, {"n": i}, retention_days=0)
         follower = LessonFollower(self.path)
+        self.addCleanup(follower.close)
         self.assertEqual(follower.history(2), [{"n": 1}, {"n": 2}])
         self.assertEqual(follower.poll(), [])
 
@@ -68,15 +78,17 @@ class LessonFollowerTest(unittest.TestCase):
         self.assertEqual(follower.poll(), [{"n": 4}])
 
     def test_restarts_after_rotation(self):
-        append_lesson(self.path, {"n": 1})
+        append_lesson(self.path, {"n": 1}, retention_days=0)
         follower = LessonFollower(self.path)
+        self.addCleanup(follower.close)
         follower.history(5)
         self.path.unlink()
-        append_lesson(self.path, {"n": 2})
+        append_lesson(self.path, {"n": 2}, retention_days=0)
         self.assertEqual(follower.poll(), [{"n": 2}])
 
     def test_missing_file(self):
         follower = LessonFollower(self.path)
+        self.addCleanup(follower.close)
         self.assertEqual(follower.history(5), [])
         self.assertEqual(follower.poll(), [])
 
@@ -87,8 +99,10 @@ class RenderLessonTest(unittest.TestCase):
                   "original": "I has went to school yesterday.", "lesson": LESSON}
         text = render_lesson(record, Style(enabled=False))
         for expected in ("10:00:00 · engteacher", "✎ 교정", "I went to school yesterday.",
-                         "has went → went", "상태 강조", "/ˈjɛstərdeɪ/", "I went home early"):
+                         "has went → went", "/ˈjɛstərdeɪ/", "I went home early"):
             self.assertIn(expected, text)
+        self.assertNotIn("대안", text)
+        self.assertNotIn("상태 강조", text)
         self.assertNotIn("\033[", text)
 
     def test_tolerates_malformed_lesson(self):
@@ -126,6 +140,21 @@ class LessonLinesTest(unittest.TestCase):
         self.assertIn(Span("/ˈjɛstərdeɪ/", "cyan"), spans)
         self.assertIn(Span("I went to school yesterday.", "bold"), spans)
         self.assertTrue({span.tag for span in spans} <= set(ANSI_CODES) | {None})
+
+    def test_alternatives_are_shown_only_on_request(self):
+        record = {"language": "en", "original": "I has went to school yesterday.", "lesson": LESSON}
+        self.assertTrue(has_alternatives(record))
+        hidden = [span.text for line in lesson_lines(record) for span in line]
+        self.assertNotIn("대안", hidden)
+        shown = [span.text for line in lesson_lines(record, show_alternatives=True) for span in line]
+        self.assertIn("대안", shown)
+        self.assertIn("    · I was at school yesterday. ", shown)
+        self.assertIn("— 상태 강조", shown)
+
+    def test_has_alternatives_tolerates_malformed_lesson(self):
+        self.assertFalse(has_alternatives({"original": "hi"}))
+        self.assertFalse(has_alternatives({"lesson": {"alternatives": "bad"}}))
+        self.assertFalse(has_alternatives({"lesson": "bad"}))
 
     def test_header_rule_can_be_dropped(self):
         record = {"time": "2026-09-28T13:04:00", "cwd": "/x/engteacher", "original": "hi"}

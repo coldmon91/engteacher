@@ -7,17 +7,23 @@ from tkinter import ttk
 
 from .gui_settings import FONT_SIZE_MAX, FONT_SIZE_MIN, GuiSettings, clamp_font_size
 from .model_settings import PROVIDERS, ModelSettings, is_valid_model
+from .storage_settings import (RETENTION_DAYS_MAX, RETENTION_DAYS_MIN, StorageSettings,
+                               clamp_retention_days)
 
 
 class SettingsDialog:
     def __init__(self, parent: tk.Tk, settings: GuiSettings, model_settings: ModelSettings,
+                 storage_settings: StorageSettings,
                  on_change: Callable[[GuiSettings], None],
                  on_model_change: Callable[[ModelSettings], None],
+                 on_storage_change: Callable[[StorageSettings], None],
                  saved_model_for: Callable[[str], str]):
         self._settings = settings
         self._model_settings = model_settings
+        self._storage_settings = storage_settings
         self._on_change = on_change
         self._on_model_change = on_model_change
+        self._on_storage_change = on_storage_change
         self._saved_model_for = saved_model_for
 
         top = tk.Toplevel(parent)
@@ -65,7 +71,22 @@ class SettingsDialog:
         tk.Label(top, text="다음 입력부터 적용 · ENGTEACHER_MODEL 환경변수가 있으면 그 값이 우선",
                  fg="gray55").grid(row=5, column=0, columnspan=2, sticky="w", padx=16, pady=(4, 0))
 
-        tk.Button(top, text="닫기", command=self.close).grid(row=6, column=0, columnspan=2,
+        ttk.Separator(top).grid(row=6, column=0, columnspan=2, sticky="ew", padx=16, pady=12)
+
+        tk.Label(top, text="기록 보관기간 (일)").grid(row=7, column=0, sticky="w", padx=(16, 8))
+        self._retention_var = tk.StringVar(value=str(storage_settings.retention_days))
+        retention_spin = tk.Spinbox(top, from_=RETENTION_DAYS_MIN, to=RETENTION_DAYS_MAX, width=4,
+                                    textvariable=self._retention_var, command=self._apply_storage)
+        retention_spin.grid(row=7, column=1, sticky="w", padx=(0, 16))
+        retention_spin.bind("<Return>", lambda _event: self._apply_storage())
+        retention_spin.bind("<FocusOut>", lambda _event: self._apply_storage())
+
+        tk.Label(top, text="지난 날짜 기록은 압축 보관 후 기간이 지나면 삭제 · 0이면 삭제 안 함\n"
+                           "ENGTEACHER_RETENTION_DAYS 환경변수가 있으면 그 값이 우선",
+                 fg="gray55", justify="left").grid(row=8, column=0, columnspan=2, sticky="w",
+                                                   padx=16, pady=(4, 0))
+
+        tk.Button(top, text="닫기", command=self.close).grid(row=9, column=0, columnspan=2,
                                                             sticky="e", padx=16, pady=16)
         top.protocol("WM_DELETE_WINDOW", self.close)
         top.bind("<Escape>", lambda _event: self.close())
@@ -89,6 +110,7 @@ class SettingsDialog:
         # Keep typed values that were not yet confirmed with Enter.
         self._apply()
         self._apply_model()
+        self._apply_storage()
         self._top.destroy()
 
     def _apply(self) -> None:
@@ -123,3 +145,15 @@ class SettingsDialog:
         if settings != self._model_settings:
             self._model_settings = settings
             self._on_model_change(settings)
+
+    def _apply_storage(self) -> None:
+        try:
+            days = clamp_retention_days(int(self._retention_var.get()))
+        except ValueError:
+            days = self._storage_settings.retention_days
+        self._retention_var.set(str(days))
+
+        settings = StorageSettings(retention_days=days)
+        if settings != self._storage_settings:
+            self._storage_settings = settings
+            self._on_storage_change(settings)

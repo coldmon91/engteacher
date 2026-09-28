@@ -13,6 +13,8 @@ _CODE_HINT = re.compile(r"[(){}\[\]<>=;$\\|/_*#@&^+]|\w\.\w|(?:^|\s)-")
 # Pasted content, system reminders and similar tagged blocks are not user prose.
 # Claude Code repeats attributes on the closing tag, e.g. </pasted_content id="ab12">.
 _TAGGED_BLOCK = re.compile(r"<([A-Za-z][\w-]*)[^>]*>.*?</\1(?:\s[^>]*)?>", re.DOTALL)
+# Stand-in for a backtick span so the sentence keeps its shape, e.g. "remove the {A} section".
+_PLACEHOLDER = re.compile(r"\{[A-Z]+\}")
 _URL = re.compile(r"https?://\S+")
 _MENTION_OR_PATH = re.compile(r"(?<!\S)(?:@|~/|\./|/)[\w./-]*[\w/]")
 _HANGUL_SYLLABLE = re.compile(r"[가-힣]")
@@ -39,16 +41,40 @@ def _looks_like_prose(text: str) -> bool:
             or english_words >= MIN_ENGLISH_WORDS)
 
 
-def _unwrap_prose_span(match: re.Match[str]) -> str:
-    """Keeps a backtick-quoted sentence as prose; drops identifiers, paths and commands."""
-    content = match.group(1)
-    return content if _looks_like_prose(content) else " "
+def _placeholder_label(index: int) -> str:
+    """Spreadsheet-style labels: A ~ Z, then AA, AB, ..."""
+    label = ""
+    index += 1
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        label = chr(ord("A") + remainder) + label
+    return label
+
+
+def _replace_inline_code(text: str) -> str:
+    """Keeps a backtick-quoted sentence as prose; other spans become {A}, {B}, ...
+
+    Repeated spans share one label so the tutor sees they refer to the same thing.
+    """
+    labels: dict[str, str] = {}
+
+    def replace(match: re.Match[str]) -> str:
+        content = match.group(1)
+        if _looks_like_prose(content):
+            return content
+        if not content.strip():
+            return " "
+        if content not in labels:
+            labels[content] = _placeholder_label(len(labels))
+        return f"{{{labels[content]}}}"
+
+    return _INLINE_CODE.sub(replace, text)
 
 
 def strip_non_prose(prompt: str) -> str:
     text = _FENCED_CODE.sub(" ", prompt)
     text = _TAGGED_BLOCK.sub(" ", text)
-    text = _INLINE_CODE.sub(_unwrap_prose_span, text)
+    text = _replace_inline_code(text)
     text = _URL.sub(" ", text)
     text = _MENTION_OR_PATH.sub(" ", text)
     lines = (" ".join(line.split()) for line in text.splitlines())
@@ -56,6 +82,7 @@ def strip_non_prose(prompt: str) -> str:
 
 
 def detect_language(text: str) -> Language | None:
+    text = _PLACEHOLDER.sub(" ", text)
     hangul_count = len(_HANGUL_SYLLABLE.findall(text))
     english_words = _LATIN_WORD.findall(text)
     if hangul_count >= MIN_HANGUL_SYLLABLES:

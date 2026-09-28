@@ -42,7 +42,7 @@ class StripNonProseTest(unittest.TestCase):
             "```py\nx = 1\n```\n"
             "<pasted_content id=1>raw log</pasted_content> thanks"
         )
-        self.assertEqual(strip_non_prose(prompt), "Please check in and\nthanks")
+        self.assertEqual(strip_non_prose(prompt), "Please check {A} in and\nthanks")
 
     def test_slash_inside_word_is_kept(self):
         self.assertEqual(strip_non_prose("read and/or write"), "read and/or write")
@@ -58,11 +58,23 @@ class StripNonProseTest(unittest.TestCase):
         self.assertEqual(strip_non_prose("check `this sentence is fine` please"),
                          "check this sentence is fine please")
 
-    def test_backtick_code_is_removed(self):
+    def test_backtick_code_becomes_placeholder(self):
         for code in ("/eng", "foo()", "convertor.go", "docker images", "TKO-DECODE-RV-1",
                      "./start_service.sh --only-oauth", "10.25.17.184", "{root}/failed_record",
-                     "git commit -m fix"):
-            self.assertEqual(strip_non_prose(f"run `{code}` now"), "run now", code)
+                     "git commit -m fix", "대안"):
+            self.assertEqual(strip_non_prose(f"run `{code}` now"), "run {A} now", code)
+
+    def test_placeholders_are_lettered_in_order_and_reused(self):
+        prompt = "`[translation]` 섹션은 `원문` `개선` 과 중복이야 `[translation]` 은 제거"
+        self.assertEqual(strip_non_prose(prompt), "{A} 섹션은 {B} {C} 과 중복이야 {A} 은 제거")
+
+    def test_short_backtick_term_keeps_sentence(self):
+        result = select_tutor_input("출력포맷 변경, `대안` 섹션은 제거", 2000)
+        self.assertEqual(result, TutorInput(text="출력포맷 변경, {A} 섹션은 제거", language="ko"))
+
+    def test_placeholders_do_not_count_as_words(self):
+        self.assertIsNone(select_tutor_input("run `foo` now", 2000))
+        self.assertIsNone(select_tutor_input("`./start_service.sh --only-oauth` 해줘", 2000))
 
 
 class DetectLanguageTest(unittest.TestCase):

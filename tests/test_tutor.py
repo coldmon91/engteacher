@@ -1,9 +1,11 @@
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 from engteacher.config import RECURSION_GUARD_ENV, load_config
 from engteacher.input_filter import TutorInput
@@ -71,6 +73,19 @@ class CodexBackendTest(unittest.TestCase):
         self._dir = tempfile.TemporaryDirectory()
         self.home = Path(self._dir.name)
         self.config = replace(load_config(), home=self.home, provider="codex", model="gpt-6-luna")
+        # A private CODEX_HOME holds the fake models cache the catalog is derived from.
+        self.codex_home = self.home / "codex"
+        self.codex_home.mkdir()
+        env = mock.patch.dict(os.environ, {"CODEX_HOME": str(self.codex_home)})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def _write_models_cache(self, *models):
+        (self.codex_home / "models_cache.json").write_text(json.dumps({"models": list(models)}))
+
+    def _override(self, command, key):
+        values = [command[i + 1] for i, arg in enumerate(command) if arg == "--config"]
+        return next((v.split("=", 1)[1] for v in values if v.startswith(f"{key}=")), None)
 
     def tearDown(self):
         self._dir.cleanup()
@@ -84,11 +99,43 @@ class CodexBackendTest(unittest.TestCase):
         self.assertEqual(command[command.index("--model") + 1], "gpt-6-luna")
         self.assertEqual(command[command.index("--sandbox") + 1], "read-only")
         disabled = {command[i + 1] for i, arg in enumerate(command) if arg == "--disable"}
-        self.assertEqual(disabled, {"hooks", "plugins"})
+        self.assertLessEqual({"hooks", "plugins", "apps", "shell_tool", "multi_agent"}, disabled)
         schema = json.loads(Path(command[command.index("--output-schema") + 1]).read_text())
         self.assertFalse(schema["additionalProperties"])
-        instructions = next(arg for arg in command if arg.startswith("developer_instructions="))
-        self.assertIn("English writing tutor", json.loads(instructions.split("=", 1)[1]))
+
+    def test_tutor_rules_replace_base_prompt_and_skills(self):
+        command = build_command(self.config)
+
+        instructions = Path(json.loads(self._override(command, "model_instructions_file")))
+        self.assertIn("English writing tutor", instructions.read_text(encoding="utf-8"))
+        self.assertIsNone(self._override(command, "developer_instructions"))
+        self.assertEqual(self._override(command, "skills.include_instructions"), "false")
+        self.assertEqual(self._override(command, "web_search"), '"disabled"')
+
+    def test_catalog_turns_off_model_tools(self):
+        self._write_models_cache(
+            {"slug": "gpt-6-luna", "context_window": 272000, "tool_mode": "code_mode_only",
+             "multi_agent_version": "v2", "apply_patch_tool_type": "freeform",
+             "experimental_supported_tools": ["clock"]},
+            {"slug": "gpt-6-sol"},
+        )
+        command = build_command(self.config)
+
+        catalog = json.loads(Path(json.loads(self._override(command, "model_catalog_json"))).read_text())
+        self.assertEqual(len(catalog["models"]), 1)
+        entry = catalog["models"][0]
+        self.assertEqual(entry["context_window"], 272000)
+        self.assertEqual(entry["tool_mode"], "direct")
+        self.assertEqual(entry["experimental_supported_tools"], [])
+        self.assertNotIn("multi_agent_version", entry)
+        self.assertNotIn("apply_patch_tool_type", entry)
+
+    def test_uncached_model_runs_without_catalog(self):
+        for cache in (None, "not json", json.dumps({"models": [{"slug": "gpt-6-sol"}]})):
+            if cache is not None:
+                (self.codex_home / "models_cache.json").write_text(cache)
+            command = build_command(self.config)
+            self.assertIsNone(self._override(command, "model_catalog_json"), msg=cache)
 
     def test_request_parses_final_message(self):
         runner = lambda command, **kwargs: _completed(json.dumps(LESSON))
