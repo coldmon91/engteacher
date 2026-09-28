@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from engteacher.card_browser import ALL_MODE, NOTES_MODE, CardBrowser
-from engteacher.notes import NoteStore
+from teacherlang.card_browser import ALL_MODE, NOTES_MODE, CardBrowser
+from teacherlang.notes import NoteStore
 
 
 def _record(n: int) -> dict:

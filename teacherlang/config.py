@@ -8,14 +8,14 @@ from .model_settings import ModelSettings, load_model_settings
 from .storage_settings import clamp_retention_days, load_storage_settings
 
 # Set on the tutor's own `claude -p` process so the hook never tutors itself.
-RECURSION_GUARD_ENV = "ENGTEACHER_ACTIVE"
+RECURSION_GUARD_ENV = "TEACHERLANG_ACTIVE"
 MODEL_SETTINGS_FILE = "model.json"
 STORAGE_SETTINGS_FILE = "storage.json"
 
 
 def _default_home() -> Path:
     state_root = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state_root) / "engteacher"
+    return Path(state_root) / "teacherlang"
 
 
 @dataclass(frozen=True)
@@ -64,32 +64,32 @@ def _int_env(name: str, default: int) -> int:
 
 
 def _resolve_model_settings(home: Path) -> ModelSettings:
-    """ENGTEACHER_MODEL wins over the model saved from the GUI, which wins over the default."""
+    """TEACHERLANG_MODEL wins over the model saved from the GUI, which wins over the default."""
     settings = load_model_settings(home / MODEL_SETTINGS_FILE)
-    env_model = os.environ.get("ENGTEACHER_MODEL")
+    env_model = os.environ.get("TEACHERLANG_MODEL")
     return replace(settings, model=env_model) if env_model else settings
 
 
 def _resolve_retention_days(home: Path) -> int:
-    """ENGTEACHER_RETENTION_DAYS wins over the value saved from the GUI, then the default."""
+    """TEACHERLANG_RETENTION_DAYS wins over the value saved from the GUI, then the default."""
     try:
-        return clamp_retention_days(int(os.environ["ENGTEACHER_RETENTION_DAYS"]))
+        return clamp_retention_days(int(os.environ["TEACHERLANG_RETENTION_DAYS"]))
     except (KeyError, ValueError):
         return load_storage_settings(home / STORAGE_SETTINGS_FILE).retention_days
 
 
 def load_config() -> Config:
-    home = Path(os.environ.get("ENGTEACHER_HOME") or _default_home())
+    home = Path(os.environ.get("TEACHERLANG_HOME") or _default_home())
     model_settings = _resolve_model_settings(home)
     return Config(
         home=home,
         provider=model_settings.provider,
         model=model_settings.model,
-        claude_bin=os.environ.get("ENGTEACHER_CLAUDE_BIN", "claude"),
-        codex_bin=os.environ.get("ENGTEACHER_CODEX_BIN", "codex"),
-        tutor_timeout_sec=float(_int_env("ENGTEACHER_TIMEOUT_SEC", 90)),
-        context_messages=_int_env("ENGTEACHER_CONTEXT_MESSAGES", 6),
-        context_chars_per_message=_int_env("ENGTEACHER_CONTEXT_CHARS", 600),
-        max_prompt_chars=_int_env("ENGTEACHER_MAX_PROMPT_CHARS", 2000),
+        claude_bin=os.environ.get("TEACHERLANG_CLAUDE_BIN", "claude"),
+        codex_bin=os.environ.get("TEACHERLANG_CODEX_BIN", "codex"),
+        tutor_timeout_sec=float(_int_env("TEACHERLANG_TIMEOUT_SEC", 90)),
+        context_messages=_int_env("TEACHERLANG_CONTEXT_MESSAGES", 6),
+        context_chars_per_message=_int_env("TEACHERLANG_CONTEXT_CHARS", 600),
+        max_prompt_chars=_int_env("TEACHERLANG_MAX_PROMPT_CHARS", 2000),
         retention_days=_resolve_retention_days(home),
     )

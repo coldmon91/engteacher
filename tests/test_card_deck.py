@@ -1,6 +1,6 @@
 import unittest
 
-from engteacher.card_deck import CardDeck
+from teacherlang.card_deck import CardDeck
 
 
 def _records(*ids: int) -> list[dict]:

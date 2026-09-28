@@ -6,8 +6,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from engteacher import install
-from engteacher.settings_patch import (
+from teacherlang import install
+from teacherlang.settings_patch import (
     PatchResult,
     SettingsShapeError,
     apply_hook,
@@ -15,7 +15,7 @@ from engteacher.settings_patch import (
     remove_hook,
 )
 
-COMMAND = "ENGTEACHER_PYTHON=/usr/bin/py /repo/bin/engteacher-hook"
+COMMAND = "TEACHERLANG_PYTHON=/usr/bin/py /repo/bin/teacherlang-hook"
 OTHER_HOOK = {"hooks": [{"type": "command", "command": "node other.js", "timeout": 5}]}
 
 
@@ -42,7 +42,7 @@ class ApplyHookTest(unittest.TestCase):
 
     def test_moved_checkout_updates_instead_of_duplicating(self):
         patched, _ = apply_hook({}, COMMAND)
-        moved = "ENGTEACHER_PYTHON=/usr/bin/py /new/bin/engteacher-hook"
+        moved = "TEACHERLANG_PYTHON=/usr/bin/py /new/bin/teacherlang-hook"
         updated, result = apply_hook(patched, moved)
         self.assertIs(result, PatchResult.UPDATED)
         groups = updated["hooks"]["UserPromptSubmit"]
@@ -55,13 +55,13 @@ class ApplyHookTest(unittest.TestCase):
 
     def test_command_quotes_paths_with_spaces(self):
         self.assertEqual(
-            build_hook_command("/usr/bin/py", "/My Repo/bin/engteacher-hook"),
-            "ENGTEACHER_PYTHON=/usr/bin/py '/My Repo/bin/engteacher-hook'",
+            build_hook_command("/usr/bin/py", "/My Repo/bin/teacherlang-hook"),
+            "TEACHERLANG_PYTHON=/usr/bin/py '/My Repo/bin/teacherlang-hook'",
         )
 
 
 class RemoveHookTest(unittest.TestCase):
-    def test_removes_only_engteacher_group(self):
+    def test_removes_only_teacherlang_group(self):
         installed, _ = apply_hook({"hooks": {"UserPromptSubmit": [OTHER_HOOK]}}, COMMAND)
         removed, result = remove_hook(installed)
         self.assertIs(result, PatchResult.REMOVED)
@@ -109,7 +109,7 @@ class InstallCliTest(unittest.TestCase):
         return code, out.getvalue(), err.getvalue()
 
     def _backups(self):
-        return list(self.path.parent.glob("settings.json.engteacher-backup-*"))
+        return list(self.path.parent.glob("settings.json.teacherlang-backup-*"))
 
     def test_dry_run_does_not_write(self):
         code, out, _ = self._run("--dry-run")

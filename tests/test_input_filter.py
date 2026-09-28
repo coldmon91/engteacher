@@ -1,6 +1,6 @@
 import unittest
 
-from engteacher.input_filter import TutorInput, detect_language, select_tutor_input, strip_non_prose
+from teacherlang.input_filter import TutorInput, detect_language, select_tutor_input, strip_non_prose
 
 
 class SelectTutorInputTest(unittest.TestCase):

@@ -28,7 +28,7 @@ class SettingsDialog:
 
         top = tk.Toplevel(parent)
         self._top = top
-        top.title("engteacher 설정")
+        top.title("TeacherLang 설정")
         top.resizable(False, False)
         top.transient(parent)
         # Stay above the main window even when it is itself always on top. macOS ignores
@@ -68,7 +68,7 @@ class SettingsDialog:
         self._model_box.bind("<Return>", lambda _event: self._apply_model())
         self._model_box.bind("<FocusOut>", lambda _event: self._apply_model())
 
-        tk.Label(top, text="다음 입력부터 적용 · ENGTEACHER_MODEL 환경변수가 있으면 그 값이 우선",
+        tk.Label(top, text="다음 입력부터 적용 · TEACHERLANG_MODEL 환경변수가 있으면 그 값이 우선",
                  fg="gray55").grid(row=5, column=0, columnspan=2, sticky="w", padx=16, pady=(4, 0))
 
         ttk.Separator(top).grid(row=6, column=0, columnspan=2, sticky="ew", padx=16, pady=12)
@@ -82,7 +82,7 @@ class SettingsDialog:
         retention_spin.bind("<FocusOut>", lambda _event: self._apply_storage())
 
         tk.Label(top, text="지난 날짜 기록은 압축 보관 후 기간이 지나면 삭제 · 0이면 삭제 안 함\n"
-                           "ENGTEACHER_RETENTION_DAYS 환경변수가 있으면 그 값이 우선",
+                           "TEACHERLANG_RETENTION_DAYS 환경변수가 있으면 그 값이 우선",
                  fg="gray55", justify="left").grid(row=8, column=0, columnspan=2, sticky="w",
                                                    padx=16, pady=(4, 0))
 

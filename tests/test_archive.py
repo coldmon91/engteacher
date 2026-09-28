@@ -7,12 +7,12 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from unittest import mock
 
-from engteacher.archive import list_archives, log_lock, read_archive_lines, rotate_daily
-from engteacher.config import load_config
-from engteacher.follow import LessonFollower
-from engteacher.storage_settings import (DEFAULT_RETENTION_DAYS, StorageSettings,
+from teacherlang.archive import list_archives, log_lock, read_archive_lines, rotate_daily
+from teacherlang.config import load_config
+from teacherlang.follow import LessonFollower
+from teacherlang.storage_settings import (DEFAULT_RETENTION_DAYS, StorageSettings,
                                          load_storage_settings, save_storage_settings)
-from engteacher.store import append_lesson
+from teacherlang.store import append_lesson
 
 TODAY = date.today()
 
@@ -184,13 +184,13 @@ class StorageSettingsTest(unittest.TestCase):
 
     def test_environment_overrides_saved_value(self):
         save_storage_settings(self.path, StorageSettings(retention_days=30))
-        env = {"ENGTEACHER_HOME": str(self.home)}
+        env = {"TEACHERLANG_HOME": str(self.home)}
         with mock.patch.dict(os.environ, env):
-            os.environ.pop("ENGTEACHER_RETENTION_DAYS", None)
+            os.environ.pop("TEACHERLANG_RETENTION_DAYS", None)
             self.assertEqual(load_config().retention_days, 30)
-            os.environ["ENGTEACHER_RETENTION_DAYS"] = "0"
+            os.environ["TEACHERLANG_RETENTION_DAYS"] = "0"
             self.assertEqual(load_config().retention_days, 0)
-            os.environ["ENGTEACHER_RETENTION_DAYS"] = "bad"
+            os.environ["TEACHERLANG_RETENTION_DAYS"] = "bad"
             self.assertEqual(load_config().retention_days, 30)
 
 

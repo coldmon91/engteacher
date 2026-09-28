@@ -1,6 +1,6 @@
 """Terminal viewer that shows lessons as the hook logs them.
 
-Run it in a separate terminal pane: python3 -m engteacher.viewer
+Run it in a separate terminal pane: python3 -m teacherlang.viewer
 """
 
 import argparse
@@ -11,13 +11,15 @@ import time
 from .config import load_config
 from .follow import LessonFollower
 from .render import Style, render_lesson
+from .startup_install import SKIP_FLAG, SKIP_FLAG_HELP, offer_install_in_terminal
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="engteacher-view", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog="teacherlang-view", description=__doc__.splitlines()[0])
     parser.add_argument("-n", "--history", type=int, default=5, help="lessons to show at start")
     parser.add_argument("--no-follow", action="store_true", help="print history and exit")
     parser.add_argument("--interval", type=float, default=0.5, help="poll interval in seconds")
+    parser.add_argument(SKIP_FLAG, action="store_true", help=SKIP_FLAG_HELP)
     return parser.parse_args(argv)
 
 
@@ -28,6 +30,8 @@ def _print_lessons(lessons: list[dict], style: Style) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    if not args.no_install_check:
+        offer_install_in_terminal()
     config = load_config()
     style = Style(enabled=sys.stdout.isatty() and not os.environ.get("NO_COLOR"))
     follower = LessonFollower(config.lessons_path)

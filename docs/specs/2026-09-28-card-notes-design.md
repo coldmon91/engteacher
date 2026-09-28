@@ -1,7 +1,7 @@
 # 카드 노트 (저장한 카드 복습) 설계
 
 - 상태: 승인된 설계
-- 대상: GUI 뷰어 (`bin/engteacher-gui`)만. 터미널 뷰어는 변경 없음
+- 대상: GUI 뷰어 (`bin/teacherlang-gui`)만. 터미널 뷰어는 변경 없음
 - 범위: 카드 저장/해제, 저장한 카드만 넘겨보는 노트 모드
 - 범위 밖: 메모 입력, Markdown 등 파일 내보내기
 
@@ -10,16 +10,17 @@
 ```
  전체  노트                          ☆   ⚙
 ──────────────────────────────────────────
- ✎ 교정               13:04:00 · engteacher
+ ✎ 교정               13:04:00 · teacherlang
  원문   I has a apple
  개선   I have an apple
  ...
 ──────────────────────────────────────────
- 대안 ▸          ‹  3 / 20  ›          최신
+                 ‹  3 / 20  ›          최신
 ```
 
-- 모드 탭과 저장 버튼은 카드 위 도구줄에 배치. 하단 탐색줄에 `대안` 버튼이 이미 있어 560px 폭에서 공간이 부족하기 때문
-- 버튼은 테두리 없는 텍스트 버튼 (`engteacher/gui_widgets.py` 의 `FlatButton`). 상태줄은 오류가 있을 때만 표시
+- 모드 탭과 저장 버튼은 카드 위 도구줄에 배치. 하단 탐색줄은 이동만 담당
+- 대안은 카드 맨 아래 `대안 ▸ 2` 제목을 클릭해 펼치고 접음 (하단 버튼 없음)
+- 버튼은 테두리 없는 텍스트 버튼 (`teacherlang/gui_widgets.py` 의 `FlatButton`). 상태줄은 오류가 있을 때만 표시
 
 ### 저장/해제
 
@@ -48,23 +49,23 @@
 
 ### 새 파일
 
-- `engteacher/notes.py` — `NoteStore`, `NotesError`, `lesson_key`
-  - 위치: `$ENGTEACHER_HOME/notes.json`
+- `teacherlang/notes.py` — `NoteStore`, `NotesError`, `lesson_key`
+  - 위치: `$TEACHERLANG_HOME/notes.json`
   - 형식: `{"notes": [기록, ...]}` (저장 순서, `lessons.jsonl` 레코드 전체 복사)
   - 카드 식별: `lesson_key(record) = (time, session_id, original)`. 기록에 고유 ID가 없어 세 값을 조합
   - `load() -> list[dict]`, `is_saved(record)`, `save(record)`, `remove(record)`
   - `save`/`remove`는 `notes.lock` 잠금(기존 `archive.log_lock` 재사용) 안에서 파일을 다시 읽어 반영한 뒤 `write_json_atomic` 으로 기록. 창 2개를 띄워도 서로 덮어쓰지 않음
   - 같은 카드 중복 저장은 1건으로 유지
-- `engteacher/card_browser.py` — `CardBrowser` (Tk 의존 없음)
+- `teacherlang/card_browser.py` — `CardBrowser` (Tk 의존 없음)
   - 전체 목록 `CardDeck`, 노트 목록 `CardDeck`, 현재 모드 보유
   - `add_lessons()`, `set_mode()`, `toggle_mode()`, `toggle_saved()`, `current()`, `is_current_saved()`, `can_save()`, `notes_error`, 현재 목록 `deck`
   - 시작 시 노트 파일을 한 번 읽어 전체 모드의 저장 상태 표시에 사용
 
 ### 수정 파일
 
-- `engteacher/card_deck.py`: 지정한 위치로 이동하는 `move_to(index)` 공개 (노트 모드 재진입 시 보던 카드 복원)
-- `engteacher/config.py`: `notes_path` 속성 추가
-- `engteacher/gui.py`: 카드 위 도구줄에 `전체` / `노트` 탭과 `☆` 버튼, `s`·`n` 키 바인딩 추가. 판단은 `CardBrowser` 에 위임하고 창은 그리기만 담당
+- `teacherlang/card_deck.py`: 지정한 위치로 이동하는 `move_to(index)` 공개 (노트 모드 재진입 시 보던 카드 복원)
+- `teacherlang/config.py`: `notes_path` 속성 추가
+- `teacherlang/gui.py`: 카드 위 도구줄에 `전체` / `노트` 탭과 `☆` 버튼, `s`·`n` 키 바인딩 추가. 판단은 `CardBrowser` 에 위임하고 창은 그리기만 담당
 - `README.md`: 노트 기능 설명 추가
 
 ### 흐름
@@ -108,4 +109,4 @@ n / 노트    → browser.toggle_mode()  (모든 모드 전환 때 NoteStore.loa
   - 노트 모드 재진입 시 직전 카드 복원, 없으면 최신 노트
   - `NotesError` 발생 시 저장 불가 상태 전달, 파일 복구 후 모드 전환으로 해제
 - `tests/test_card_deck.py`: 위치 지정 이동 메서드
-- 수동 확인: 임시 `ENGTEACHER_HOME` 으로 실제 Tk 창 스모크 테스트와 스크린샷
+- 수동 확인: 임시 `TEACHERLANG_HOME` 으로 실제 Tk 창 스모크 테스트와 스크린샷

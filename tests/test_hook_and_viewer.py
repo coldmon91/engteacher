@@ -4,10 +4,10 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from engteacher.config import load_config
-from engteacher.follow import LessonFollower
-from engteacher.hook import handle_event
-from engteacher.render import (
+from teacherlang.config import load_config
+from teacherlang.follow import LessonFollower
+from teacherlang.hook import handle_event
+from teacherlang.render import (
     ANSI_CODES,
     DETAIL,
     FIELD,
@@ -22,7 +22,7 @@ from engteacher.render import (
     lesson_lines,
     render_lesson,
 )
-from engteacher.store import append_lesson
+from teacherlang.store import append_lesson
 
 LESSON = {
     "mode": "correction",
@@ -102,10 +102,10 @@ class LessonFollowerTest(unittest.TestCase):
 
 class RenderLessonTest(unittest.TestCase):
     def test_renders_all_sections_without_color(self):
-        record = {"time": "2026-09-28T10:00:00+09:00", "cwd": "/x/engteacher", "language": "en",
+        record = {"time": "2026-09-28T10:00:00+09:00", "cwd": "/x/teacherlang", "language": "en",
                   "original": "I has went to school yesterday.", "lesson": LESSON}
         text = render_lesson(record, Style(enabled=False))
-        for expected in ("10:00:00 · engteacher", "✎ 교정", "I went to school yesterday.",
+        for expected in ("10:00:00 · teacherlang", "✎ 교정", "I went to school yesterday.",
                          "has went → went", "/ˈjɛstərdeɪ/", "I went home early"):
             self.assertIn(expected, text)
         self.assertNotIn("대안", text)
@@ -164,20 +164,20 @@ class LessonLinesTest(unittest.TestCase):
         self.assertFalse(has_alternatives({"lesson": "bad"}))
 
     def test_header_rule_can_be_dropped(self):
-        record = {"time": "2026-09-28T13:04:00", "cwd": "/x/engteacher", "original": "hi"}
+        record = {"time": "2026-09-28T13:04:00", "cwd": "/x/teacherlang", "original": "hi"}
         self.assertIn("─", lesson_lines(record)[0][0].text)
         self.assertEqual(lesson_lines(record, header_rule=False)[0],
-                         [Span("13:04:00 · engteacher", "dim")])
+                         [Span("13:04:00 · teacherlang", "dim")])
 
     def test_gui_defines_every_tag(self):
-        from engteacher import gui
+        from teacherlang import gui
 
         self.assertEqual(set(gui.TAG_COLORS) | gui.FONT_TAGS, set(ANSI_CODES))
 
 
 class LessonBlocksTest(unittest.TestCase):
     def test_blocks_carry_kinds_without_indentation(self):
-        record = {"time": "2026-09-28T13:04:00", "cwd": "/x/engteacher", "language": "en",
+        record = {"time": "2026-09-28T13:04:00", "cwd": "/x/teacherlang", "language": "en",
                   "original": "I has went to school yesterday.", "lesson": LESSON}
         blocks = lesson_blocks(record, show_alternatives=True)
         self.assertEqual([block.kind for block in blocks], [
@@ -188,9 +188,10 @@ class LessonBlocksTest(unittest.TestCase):
             SECTION, ITEM,
         ])
         self.assertEqual([block.label for block in blocks if block.kind in (FIELD, SECTION)],
-                         ["원문", "개선", "변경", "대안", "어휘", "예문"])
+                         ["원문", "개선", "변경", "어휘", "예문", "대안"])
         self.assertEqual(blocks[6].spans, [Span("과거 시제")])
-        self.assertEqual(blocks[-1].spans, [Span("I went home early yesterday.")])
+        self.assertEqual(blocks[10].spans, [Span("I went home early yesterday.")])
+        self.assertEqual(blocks[-1].spans[0], Span("I was at school yesterday. "))
         leading = [block.spans[0].text for block in blocks if block.spans]
         self.assertFalse([text for text in leading if text.startswith(" ")])
 

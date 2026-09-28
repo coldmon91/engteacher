@@ -1,6 +1,6 @@
 import unittest
 
-from engteacher.gui_theme import (
+from teacherlang.gui_theme import (
     AQUA_PALETTE,
     DEFAULT_PALETTE,
     SMALLEST_FONT_SIZE,

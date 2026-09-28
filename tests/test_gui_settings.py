@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from engteacher.gui import _startup_settings
-from engteacher.gui_settings import (
+from teacherlang.gui import _startup_settings
+from teacherlang.gui_settings import (
     FONT_SIZE_MAX,
     FONT_SIZE_MIN,
     GuiSettings,

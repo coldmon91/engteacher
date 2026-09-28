@@ -1,4 +1,4 @@
-"""Adds or updates the engteacher hook entry in a Claude Code settings dict."""
+"""Adds or updates the teacherlang hook entry in a Claude Code settings dict."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import shlex
 from enum import Enum
 
 HOOK_EVENT = "UserPromptSubmit"
-HOOK_SCRIPT_NAME = "engteacher-hook"
+HOOK_SCRIPT_NAME = "teacherlang-hook"
 HOOK_TIMEOUT_SEC = 120
 
 
@@ -24,24 +24,30 @@ class SettingsShapeError(ValueError):
 
 
 def build_hook_command(python_path: str, hook_script_path: str) -> str:
-    return f"ENGTEACHER_PYTHON={shlex.quote(python_path)} {shlex.quote(hook_script_path)}"
+    return f"TEACHERLANG_PYTHON={shlex.quote(python_path)} {shlex.quote(hook_script_path)}"
 
 
 def _build_hook(command: str) -> dict:
     return {"type": "command", "command": command, "timeout": HOOK_TIMEOUT_SEC, "async": True}
 
 
-def _is_engteacher_hook(hook: object) -> bool:
+def _is_teacherlang_hook(hook: object) -> bool:
     return isinstance(hook, dict) and HOOK_SCRIPT_NAME in str(hook.get("command", ""))
 
 
-def _find_engteacher_hook(groups: list) -> dict | None:
+def _find_teacherlang_hook(groups: list) -> dict | None:
     for group in groups:
         hooks = group.get("hooks") if isinstance(group, dict) else None
         for hook in hooks if isinstance(hooks, list) else []:
-            if _is_engteacher_hook(hook):
+            if _is_teacherlang_hook(hook):
                 return hook
     return None
+
+
+def is_hook_registered(settings: dict) -> bool:
+    hooks = settings.get("hooks")
+    groups = hooks.get(HOOK_EVENT) if isinstance(hooks, dict) else None
+    return isinstance(groups, list) and _find_teacherlang_hook(groups) is not None
 
 
 def _event_groups(settings: dict) -> list:
@@ -55,12 +61,12 @@ def _event_groups(settings: dict) -> list:
 
 
 def apply_hook(settings: dict, command: str) -> tuple[dict, PatchResult]:
-    """Returns a patched copy; an existing engteacher entry is updated in place, not duplicated."""
+    """Returns a patched copy; an existing teacherlang entry is updated in place, not duplicated."""
     patched = copy.deepcopy(settings)
     groups = _event_groups(patched)
     desired = _build_hook(command)
 
-    existing = _find_engteacher_hook(groups)
+    existing = _find_teacherlang_hook(groups)
     if existing is None:
         groups.append({"hooks": [desired]})
         return patched, PatchResult.ADDED
@@ -71,10 +77,8 @@ def apply_hook(settings: dict, command: str) -> tuple[dict, PatchResult]:
 
 
 def remove_hook(settings: dict) -> tuple[dict, PatchResult]:
-    """Returns a copy without engteacher entries; containers left empty by the removal go too."""
-    hooks = settings.get("hooks")
-    groups = hooks.get(HOOK_EVENT) if isinstance(hooks, dict) else None
-    if not isinstance(groups, list) or _find_engteacher_hook(groups) is None:
+    """Returns a copy without teacherlang entries; containers left empty by the removal go too."""
+    if not is_hook_registered(settings):
         return settings, PatchResult.NOT_FOUND
 
     patched = copy.deepcopy(settings)
@@ -84,8 +88,8 @@ def remove_hook(settings: dict) -> tuple[dict, PatchResult]:
         if not isinstance(group_hooks, list):
             kept_groups.append(group)
             continue
-        remaining = [hook for hook in group_hooks if not _is_engteacher_hook(hook)]
-        # Other hooks sharing the group stay; a group that held only engteacher is dropped.
+        remaining = [hook for hook in group_hooks if not _is_teacherlang_hook(hook)]
+        # Other hooks sharing the group stay; a group that held only teacherlang is dropped.
         if remaining or len(remaining) == len(group_hooks):
             group["hooks"] = remaining
             kept_groups.append(group)

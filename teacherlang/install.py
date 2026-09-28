@@ -1,4 +1,4 @@
-"""Registers (or with --uninstall, removes) the engteacher hook in Claude Code user settings.
+"""Registers (or with --uninstall, removes) the teacherlang hook in Claude Code user settings.
 
 Shows a diff and asks before writing; keeps a timestamped backup of the old file.
 Runs on any Python 3 so it can report a too-old interpreter instead of crashing.
@@ -27,8 +27,9 @@ from .settings_patch import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-HOOK_SCRIPT = REPO_ROOT / "bin" / "engteacher-hook"
-VIEWER_SCRIPT = REPO_ROOT / "bin" / "engteacher-view"
+HOOK_SCRIPT = REPO_ROOT / "bin" / "teacherlang-hook"
+VIEWER_SCRIPT = REPO_ROOT / "bin" / "teacherlang-view"
+INSTALL_SCRIPT = REPO_ROOT / "bin" / "teacherlang-install"
 DEFAULT_SETTINGS = Path.home() / ".claude" / "settings.json"
 MIN_PYTHON = (3, 10)
 DIFF_LINE_MAX_CHARS = 160  # Some existing hook commands are several KB long.
@@ -39,7 +40,7 @@ class InstallError(RuntimeError):
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="engteacher-install", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog="teacherlang-install", description=__doc__.splitlines()[0])
     parser.add_argument("--settings", type=Path, default=DEFAULT_SETTINGS, help="settings.json path")
     parser.add_argument("--python", help=f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ for the hook")
     parser.add_argument("--dry-run", action="store_true", help="show the diff without writing")
@@ -94,11 +95,11 @@ def render_diff(old_text: str, new_text: str, path: Path) -> str:
 
 def backup_settings(path: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = path.with_name(f"{path.name}.engteacher-backup-{stamp}")
+    backup = path.with_name(f"{path.name}.teacherlang-backup-{stamp}")
     # Runs within the same second must not overwrite an earlier backup.
     counter = 1
     while backup.exists():
-        backup = path.with_name(f"{path.name}.engteacher-backup-{stamp}-{counter}")
+        backup = path.with_name(f"{path.name}.teacherlang-backup-{stamp}-{counter}")
         counter += 1
     shutil.copy2(path, backup)
     return backup
@@ -120,6 +121,22 @@ def write_atomically(path: Path, text: str) -> None:
         raise
 
 
+def commit_settings(path: Path, old_text: str, new_text: str) -> Path | None:
+    """Backs up and replaces settings.json; returns the backup path, or None for a new file."""
+    # Claude Code may rewrite settings.json itself; never overwrite a change made meanwhile.
+    if read_settings(path)[0] != old_text:
+        raise InstallError(f"{path} changed while waiting; rerun the installer")
+    backup = backup_settings(path) if old_text else None
+    write_atomically(path, new_text)
+    return backup
+
+
+def build_install_command(explicit_python: str | None) -> str:
+    if not os.access(HOOK_SCRIPT, os.X_OK):
+        raise InstallError(f"{HOOK_SCRIPT} is missing or not executable")
+    return build_hook_command(resolve_python(explicit_python), str(HOOK_SCRIPT))
+
+
 def _confirm(assume_yes: bool) -> bool:
     if assume_yes:
         return True
@@ -139,19 +156,14 @@ def _write_change(path: Path, old_text: str, patched: dict, args: argparse.Names
         print("Aborted; nothing written.")
         return False
 
-    # Claude Code may rewrite settings.json itself; never overwrite a change made meanwhile.
-    if read_settings(path)[0] != old_text:
-        raise InstallError(f"{path} changed while waiting; rerun the installer")
-    if old_text:
-        print(f"\nBackup: {backup_settings(path)}")
-    write_atomically(path, new_text)
+    backup = commit_settings(path, old_text, new_text)
+    if backup:
+        print(f"\nBackup: {backup}")
     return True
 
 
 def install(args: argparse.Namespace) -> int:
-    if not os.access(HOOK_SCRIPT, os.X_OK):
-        raise InstallError(f"{HOOK_SCRIPT} is missing or not executable")
-    command = build_hook_command(resolve_python(args.python), str(HOOK_SCRIPT))
+    command = build_install_command(args.python)
 
     path: Path = args.settings.expanduser()
     old_text, settings = read_settings(path)
@@ -178,7 +190,7 @@ def uninstall(args: argparse.Namespace) -> int:
     patched, result = remove_hook(settings)
 
     if result is PatchResult.NOT_FOUND:
-        print(f"No engteacher hook in {path}; nothing to change.")
+        print(f"No teacherlang hook in {path}; nothing to change.")
         return 0
     if not _write_change(path, old_text, patched, args):
         return 0 if args.dry_run else 1
@@ -195,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         return uninstall(args) if args.uninstall else install(args)
     except InstallError as exc:
         sys.stdout.flush()  # Keep the diff above the error when stdout is not a TTY.
-        print(f"engteacher-install: {exc}", file=sys.stderr)
+        print(f"teacherlang-install: {exc}", file=sys.stderr)
         return 2
 
 

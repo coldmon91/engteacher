@@ -1,6 +1,6 @@
 """Desktop window that shows lessons as the hook logs them.
 
-Run it from any terminal: python3 -m engteacher.gui
+Run it from any terminal: python3 -m teacherlang.gui
 """
 
 import argparse
@@ -17,8 +17,8 @@ from .gui_settings import GuiSettings, clamp_font_size, load_gui_settings, save_
 from .gui_theme import FONT_TAGS, SAVED_COLOR, TAG_COLORS, CardFonts, palette_for
 from .model_settings import ModelSettings, load_model_settings, save_model_settings
 from .notes import NoteStore
-from .render import (DETAIL, FIELD, HEADER, HEADLINE, ITEM, SECTION, Block, has_alternatives,
-                     lesson_blocks)
+from .render import DETAIL, FIELD, HEADER, HEADLINE, ITEM, SECTION, Block, lesson_blocks
+from .startup_install import SKIP_FLAG, SKIP_FLAG_HELP
 from .storage_settings import StorageSettings, load_storage_settings, save_storage_settings
 
 try:
@@ -26,14 +26,18 @@ try:
     from tkinter import font as tkfont
     from tkinter import messagebox
 
+    from .gui_install_prompt import offer_install_in_dialog
     from .gui_settings_dialog import SettingsDialog
     from .gui_widgets import FlatButton
 except ImportError:  # Homebrew Python ships Tk as a separate formula.
     tk = None
 
 EMPTY_DECK_MESSAGE = "아직 교정 기록이 없습니다."
-SHOW_ALTERNATIVES_LABEL = "대안 ▸"
-HIDE_ALTERNATIVES_LABEL = "대안 ▾"
+ALTERNATIVES_SECTION = "대안"
+FOLDED_MARK = "▸"
+UNFOLDED_MARK = "▾"
+# Text tag of the 대안 heading, which folds and unfolds its section when clicked.
+FOLD_TOGGLE_TAG = "fold_toggle"
 EMPTY_NOTES_MESSAGE = "저장한 카드가 없습니다. ☆ 버튼이나 s 키로 카드를 저장하세요."
 NOTES_ERROR_MESSAGE = "노트 파일을 읽을 수 없습니다: {path}"
 SAVE_LABEL = "☆"
@@ -48,15 +52,17 @@ BAR_PADX = 14
 CARD_PADX = 22
 CARD_PADY = 16
 ICON_SIZE_STEP = 5
+APP_ICON_PATH = Path(__file__).resolve().parent / "assets" / "icon-256.png"
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="engteacher-gui", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog="teacherlang-gui", description=__doc__.splitlines()[0])
     parser.add_argument("-n", "--history", type=int, default=20, help="lessons to show at start")
     parser.add_argument("--interval", type=float, default=0.5, help="poll interval in seconds")
     parser.add_argument("--font-size", type=int, help="text size in points (overrides settings)")
     parser.add_argument("--topmost", action="store_true",
                         help="keep the window above others (overrides settings)")
+    parser.add_argument(SKIP_FLAG, action="store_true", help=SKIP_FLAG_HELP)
     return parser.parse_args(argv)
 
 
@@ -82,6 +88,7 @@ class LessonWindow:
         self._notes_path = note_store.path
         self._watch_error = ""
         self._show_alternatives = False
+        self._fold_hovered = False
         self._palette = palette_for(root.tk.call("tk", "windowingsystem"))
         palette = self._palette
         root.configure(bg=palette.background)
@@ -104,13 +111,13 @@ class LessonWindow:
         # Bottom widgets are packed first so shrinking the window clips the card, not the bars.
         footer = tk.Frame(root, bg=palette.background)
         footer.pack(side="bottom", fill="x", padx=BAR_PADX, pady=(6, 10))
-        self._alternatives_button = button(footer, SHOW_ALTERNATIVES_LABEL,
-                                           self._toggle_alternatives, self._ui_font)
-        self._alternatives_button.pack(side="left")
+        # Equal side columns keep the navigation centered in the window.
+        footer.columnconfigure(0, weight=1, uniform="side")
+        footer.columnconfigure(2, weight=1, uniform="side")
         self._newest_button = button(footer, "최신", self._show_newest, self._ui_font)
-        self._newest_button.pack(side="right")
+        self._newest_button.grid(row=0, column=2, sticky="e")
         nav_center = tk.Frame(footer, bg=palette.background)
-        nav_center.pack(expand=True)
+        nav_center.grid(row=0, column=1)
         self._older_button = button(nav_center, "‹", self._show_older, self._icon_font)
         self._older_button.pack(side="left")
         self._position = tk.Label(nav_center, width=10, font=self._ui_font,
@@ -162,6 +169,12 @@ class LessonWindow:
         for tag, color in TAG_COLORS.items():
             self._text.tag_configure(tag, foreground=color)
         self._text.tag_configure("bold", font=self._fonts.bold)
+        # Hit-tested on the widget, not through tag bindings: after a redraw Tk sends no new
+        # <Enter> for a tag already under the pointer, so its hover would be lost.
+        self._text.bind("<Motion>", lambda event: self._set_fold_hover(
+            self._is_on_fold_toggle(event.x, event.y)))
+        self._text.bind("<Leave>", lambda _event: self._set_fold_hover(False))
+        self._text.bind("<ButtonRelease-1>", self._on_card_click)
         self._configure_layout_tags()
         self._render_card()
 
@@ -229,7 +242,7 @@ class LessonWindow:
         try:
             self._browser.toggle_saved()
         except OSError as error:
-            messagebox.showerror("engteacher", f"노트를 저장하지 못했습니다.\n{error}",
+            messagebox.showerror("TeacherLang", f"노트를 저장하지 못했습니다.\n{error}",
                                  parent=self._root)
         self._update_save_button()
 
@@ -238,7 +251,6 @@ class LessonWindow:
         scroll_top = self._text.yview()[0]
         self._draw_card()
         self._text.yview_moveto(scroll_top)
-        self._update_alternatives_button()
 
     def _render_card(self) -> None:
         """Shows the current card from the top, with its 대안 section folded."""
@@ -256,6 +268,8 @@ class LessonWindow:
         else:
             self._insert_lesson(record)
         self._text.configure(state="disabled")
+        # Runs after the caller restores the scroll position, so the layout is final.
+        self._text.after_idle(self._refresh_fold_hover)
 
     def _empty_card_message(self) -> str:
         if self._browser.mode == ALL_MODE:
@@ -269,22 +283,42 @@ class LessonWindow:
 
     def _insert_lesson(self, record: dict) -> None:
         """Writes one block per line; each line carries its kind's tag for margins and spacing."""
-        blocks = lesson_blocks(record, show_alternatives=self._show_alternatives)
+        blocks, alternative_count = self._fold_alternatives(
+            lesson_blocks(record, show_alternatives=True))
         header = next((block for block in blocks if block.kind == HEADER), None)
         previous_kind = ""
         for index, block in enumerate(block for block in blocks if block.kind != HEADER):
             if index:
                 self._text.insert("end", "\n", (previous_kind,))
-            self._insert_block(block, header)
+            self._insert_block(block, header, alternative_count)
             previous_kind = block.kind
 
-    def _insert_block(self, block: Block, header: Block | None) -> None:
+    def _fold_alternatives(self, blocks: list[Block]) -> tuple[list[Block], int]:
+        """Drops the 대안 items while folded, keeping the heading; also returns their count."""
+        visible: list[Block] = []
+        count = 0
+        in_alternatives = False
+        for block in blocks:
+            if block.kind == SECTION:
+                in_alternatives = block.label == ALTERNATIVES_SECTION
+            elif in_alternatives:
+                count += block.kind == ITEM
+                if not self._show_alternatives:
+                    continue
+            visible.append(block)
+        return visible, count
+
+    def _insert_block(self, block: Block, header: Block | None, alternative_count: int) -> None:
         def insert(text: str, *tags: str | None) -> None:
             self._text.insert("end", text, (block.kind, *(tag for tag in tags if tag)))
 
         if block.kind == FIELD:
             insert(block.label, "label")
             insert("\t")
+        elif block.kind == SECTION and block.label == ALTERNATIVES_SECTION:
+            heading = (f"{block.label} {UNFOLDED_MARK}" if self._show_alternatives
+                       else f"{block.label} {FOLDED_MARK} {alternative_count}")
+            insert(heading, FOLD_TOGGLE_TAG)
         elif block.kind == SECTION:
             insert(block.label)
         elif block.kind == ITEM:
@@ -314,8 +348,9 @@ class LessonWindow:
         text.tag_configure(ITEM, lmargin1=indent, lmargin2=indent + bullet, spacing1=line // 5)
         text.tag_configure(DETAIL, lmargin1=indent + bullet, lmargin2=indent + bullet)
         text.tag_configure("label", foreground=self._palette.secondary)
+        text.tag_configure(FOLD_TOGGLE_TAG, foreground=self._fold_toggle_color())
         # Character colors win over the line colors above; tags made later take priority.
-        for tag in (*TAG_COLORS, *FONT_TAGS, "label", "meta"):
+        for tag in (*TAG_COLORS, *FONT_TAGS, "label", "meta", FOLD_TOGGLE_TAG):
             text.tag_raise(tag)
         self._place_header_tab()
 
@@ -336,7 +371,6 @@ class LessonWindow:
             selected = mode == self._browser.mode
             mode_button.configure(font=self._ui_bold if selected else self._ui_font)
             mode_button.set_color(self._palette.text if selected else self._palette.secondary)
-        self._update_alternatives_button()
         self._update_save_button()
 
     def _update_save_button(self) -> None:
@@ -346,12 +380,35 @@ class LessonWindow:
         self._save_button.set_enabled(self._browser.can_save())
         self._show_status()  # Saving can reveal an unreadable notes file.
 
-    def _update_alternatives_button(self) -> None:
-        record = self._browser.current()
-        available = record is not None and has_alternatives(record)
-        label = HIDE_ALTERNATIVES_LABEL if self._show_alternatives else SHOW_ALTERNATIVES_LABEL
-        self._alternatives_button.configure(text=label)
-        self._alternatives_button.set_enabled(available)
+    def _on_card_click(self, event: "tk.Event") -> None:
+        if self._is_on_fold_toggle(event.x, event.y):
+            self._toggle_alternatives()
+
+    def _is_on_fold_toggle(self, x: int, y: int) -> bool:
+        """True only over the heading's glyphs, not the blank rest of its line."""
+        index = self._text.index(f"@{x},{y}")
+        if FOLD_TOGGLE_TAG not in self._text.tag_names(index):
+            return False
+        box = self._text.bbox(index)
+        return box is not None and box[0] <= x < box[0] + box[2] and box[1] <= y < box[1] + box[3]
+
+    def _refresh_fold_hover(self) -> None:
+        """Re-tests the pointer after a redraw moved the text under it."""
+        pointer_x, pointer_y = self._text.winfo_pointerxy()
+        x = pointer_x - self._text.winfo_rootx()
+        y = pointer_y - self._text.winfo_rooty()
+        inside = 0 <= x < self._text.winfo_width() and 0 <= y < self._text.winfo_height()
+        self._set_fold_hover(inside and self._is_on_fold_toggle(x, y))
+
+    def _set_fold_hover(self, hovered: bool) -> None:
+        if hovered == self._fold_hovered:
+            return
+        self._fold_hovered = hovered
+        self._text.tag_configure(FOLD_TOGGLE_TAG, foreground=self._fold_toggle_color())
+        self._text.configure(cursor="hand2" if hovered else "arrow")
+
+    def _fold_toggle_color(self) -> str:
+        return self._palette.accent if self._fold_hovered else self._palette.secondary
 
     def _update_scrollbar(self, first: str, last: str) -> None:
         """Shows the scrollbar only when the card is taller than its area."""
@@ -437,7 +494,7 @@ class SettingsController:
         return load_model_settings(self._model_settings_path, provider).model
 
     def _show_save_error(self, error: Exception) -> None:
-        messagebox.showerror("engteacher", f"설정을 저장하지 못했습니다.\n{error}", parent=self._root)
+        messagebox.showerror("TeacherLang", f"설정을 저장하지 못했습니다.\n{error}", parent=self._root)
 
 
 def _bring_to_front(root: "tk.Tk", keep_on_top: bool) -> None:
@@ -448,17 +505,28 @@ def _bring_to_front(root: "tk.Tk", keep_on_top: bool) -> None:
         root.after_idle(root.attributes, "-topmost", False)
 
 
+def _set_app_icon(root: "tk.Tk") -> None:
+    """Shows the app icon on the window and the Dock; a missing icon leaves Tk's default."""
+    try:
+        icon = tk.PhotoImage(master=root, file=str(APP_ICON_PATH))
+    except tk.TclError:
+        return
+    root.iconphoto(True, icon)
+    root.app_icon = icon  # Keeps the image alive as long as the window.
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if tk is None:
         version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        print(f"engteacher-gui: tkinter is unavailable. Try: brew install python-tk@{version}",
+        print(f"teacherlang-gui: tkinter is unavailable. Try: brew install python-tk@{version}",
               file=sys.stderr)
         return 1
 
     config = load_config()
     root = tk.Tk()
-    root.title("engteacher")
+    root.title("TeacherLang")
+    _set_app_icon(root)
     root.geometry("560x680")
     root.bind("<Command-w>", lambda _event: root.destroy())
     # quit() only stops mainloop, so a Ctrl-C landing mid-callback cannot destroy widgets in use.
@@ -481,6 +549,8 @@ def main(argv: list[str] | None = None) -> int:
     window.show_history(args.history)
     window.start_polling()
     _bring_to_front(root, controller.settings.always_on_top)
+    if not args.no_install_check:
+        root.after_idle(offer_install_in_dialog, root)
     root.mainloop()
     try:
         root.destroy()

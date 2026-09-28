@@ -6,15 +6,15 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from engteacher.config import load_config
-from engteacher.input_filter import TutorInput
-from engteacher.model_settings import (
+from teacherlang.config import load_config
+from teacherlang.input_filter import TutorInput
+from teacherlang.model_settings import (
     ModelSettings,
     is_valid_model,
     load_model_settings,
     save_model_settings,
 )
-from engteacher.tutor import TutorError, request_lesson
+from teacherlang.tutor import TutorError, request_lesson
 
 
 class ModelSettingsStoreTest(unittest.TestCase):
@@ -75,14 +75,14 @@ class ConfigModelTest(unittest.TestCase):
         self._dir.cleanup()
 
     def test_saved_model_is_used(self):
-        env = {"ENGTEACHER_HOME": str(self.home)}
+        env = {"TEACHERLANG_HOME": str(self.home)}
         with mock.patch.dict(os.environ, env):
-            os.environ.pop("ENGTEACHER_MODEL", None)
+            os.environ.pop("TEACHERLANG_MODEL", None)
             config = load_config()
         self.assertEqual((config.provider, config.model), ("claude", "sonnet"))
 
     def test_environment_overrides_saved_model(self):
-        env = {"ENGTEACHER_HOME": str(self.home), "ENGTEACHER_MODEL": "opus"}
+        env = {"TEACHERLANG_HOME": str(self.home), "TEACHERLANG_MODEL": "opus"}
         with mock.patch.dict(os.environ, env):
             self.assertEqual(load_config().model, "opus")
 

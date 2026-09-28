@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from engteacher.notes import NotesError, NoteStore, lesson_key
+from teacherlang.notes import NotesError, NoteStore, lesson_key
 
 
 def _record(n: int) -> dict:

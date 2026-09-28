@@ -101,7 +101,7 @@ def has_alternatives(record: dict) -> bool:
 def lesson_blocks(record: dict, show_alternatives: bool = False) -> list[Block]:
     """Breaks a lesson into logical lines; tolerates malformed lesson fields.
 
-    `show_alternatives=True` adds the 대안 section, which is hidden unless a view asks for it.
+    `show_alternatives=True` adds the 대안 section last; it is hidden unless a view asks for it.
     """
     lesson = _lesson(record)
     original = str(record.get("original", ""))
@@ -127,14 +127,6 @@ def lesson_blocks(record: dict, show_alternatives: bool = False) -> list[Block]:
             ]))
             blocks.append(Block(DETAIL, [Span(str(issue.get("explanation_ko", "")))]))
 
-    alternatives = _alternatives(lesson) if show_alternatives else []
-    if alternatives:
-        blocks.append(Block(SECTION, [], "대안"))
-        blocks.extend(
-            Block(ITEM, [Span(f"{alt.get('text', '')} "), Span(f"— {alt.get('nuance_ko', '')}", "dim")])
-            for alt in alternatives
-        )
-
     vocabulary = _items(lesson.get("vocabulary"))
     if vocabulary:
         blocks.append(Block(SECTION, [], "어휘"))
@@ -153,6 +145,14 @@ def lesson_blocks(record: dict, show_alternatives: bool = False) -> list[Block]:
     if examples:
         blocks.append(Block(SECTION, [], "예문"))
         blocks.extend(Block(ITEM, [Span(example)]) for example in examples)
+
+    alternatives = _alternatives(lesson) if show_alternatives else []
+    if alternatives:
+        blocks.append(Block(SECTION, [], "대안"))
+        blocks.extend(
+            Block(ITEM, [Span(f"{alt.get('text', '')} "), Span(f"— {alt.get('nuance_ko', '')}", "dim")])
+            for alt in alternatives
+        )
     return blocks
 
 

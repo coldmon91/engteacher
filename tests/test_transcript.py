@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from engteacher import transcript
-from engteacher.transcript import Turn, recent_turns
+from teacherlang import transcript
+from teacherlang.transcript import Turn, recent_turns
 
 
 def _user(content, **extra):

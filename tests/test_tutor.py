@@ -7,10 +7,10 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from engteacher.config import RECURSION_GUARD_ENV, load_config
-from engteacher.input_filter import TutorInput
-from engteacher.transcript import Turn
-from engteacher.tutor import TutorError, build_command, parse_lesson, request_lesson
+from teacherlang.config import RECURSION_GUARD_ENV, load_config
+from teacherlang.input_filter import TutorInput
+from teacherlang.transcript import Turn
+from teacherlang.tutor import TutorError, build_command, parse_lesson, request_lesson
 
 LESSON = {"mode": "correction", "needs_fix": True, "improved": "I went to school."}
 
