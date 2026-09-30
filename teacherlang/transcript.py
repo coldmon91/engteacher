@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -79,8 +80,12 @@ def recent_turns(
     max_turns: int,
     max_chars_per_turn: int,
     exclude_text: str | None = None,
+    clean_text: Callable[[str], str] | None = None,
 ) -> list[Turn]:
-    """Returns up to `max_turns` latest turns, oldest first; empty on any read failure."""
+    """Returns up to `max_turns` latest turns, oldest first; empty on any read failure.
+
+    `clean_text` runs before truncation; a turn it empties is dropped.
+    """
     if not transcript_path or max_turns <= 0:
         return []
     path = Path(transcript_path)
@@ -93,6 +98,12 @@ def recent_turns(
     # The prompt being tutored may already be recorded; it is not context for itself.
     if exclude_text and turns and turns[-1].role == "user" and turns[-1].text == exclude_text.strip():
         turns.pop()
-    return [
-        Turn(role=t.role, text=_shorten(t.text, max_chars_per_turn)) for t in turns[-max_turns:]
-    ]
+    # Newest first, so only kept turns are cleaned and no placeholder label goes to a dropped one.
+    selected: list[Turn] = []
+    for turn in reversed(turns):
+        text = clean_text(turn.text) if clean_text else turn.text
+        if text:
+            selected.append(Turn(role=turn.role, text=_shorten(text, max_chars_per_turn)))
+            if len(selected) == max_turns:
+                break
+    return selected[::-1]

@@ -15,6 +15,7 @@ from .config import load_config
 from .follow import LessonFollower
 from .gui_settings import GuiSettings, clamp_font_size, load_gui_settings, save_gui_settings
 from .gui_theme import FONT_TAGS, SAVED_COLOR, TAG_COLORS, CardFonts, palette_for
+from .macos_app_name import set_macos_app_name
 from .model_settings import ModelSettings, load_model_settings, save_model_settings
 from .notes import NoteStore
 from .render import DETAIL, FIELD, HEADER, HEADLINE, ITEM, SECTION, Block, lesson_blocks
@@ -52,6 +53,7 @@ BAR_PADX = 14
 CARD_PADX = 22
 CARD_PADY = 16
 ICON_SIZE_STEP = 5
+APP_NAME = "TeacherLang"
 APP_ICON_PATH = Path(__file__).resolve().parent / "assets" / "icon-256.png"
 
 
@@ -524,8 +526,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     config = load_config()
+    set_macos_app_name(APP_NAME)  # Must precede tk.Tk(), which reads the bundle name.
     root = tk.Tk()
-    root.title("TeacherLang")
+    root.title(APP_NAME)
     _set_app_icon(root)
     root.geometry("560x680")
     root.bind("<Command-w>", lambda _event: root.destroy())

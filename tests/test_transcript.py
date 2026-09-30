@@ -51,6 +51,18 @@ class RecentTurnsTest(unittest.TestCase):
         turns = recent_turns(str(self.path), 5, 100, exclude_text="current prompt")
         self.assertEqual(turns, [Turn("user", "earlier")])
 
+    def test_clean_text_runs_before_truncation_and_drops_empty_turns(self):
+        self._write([_user("older one"), _user("CODE CODE keep this"), _user("CODE")])
+        turns = recent_turns(str(self.path), 2, 9,
+                             clean_text=lambda text: text.replace("CODE", "").strip())
+        self.assertEqual(turns, [Turn("user", "older one"), Turn("user", "keep this")])
+
+    def test_clean_text_sees_newest_turn_first(self):
+        self._write([_user("old"), _user("new")])
+        seen = []
+        recent_turns(str(self.path), 1, 100, clean_text=lambda text: seen.append(text) or text)
+        self.assertEqual(seen, ["new"])
+
     def test_reads_only_the_tail_of_large_files(self):
         original = transcript.TAIL_READ_BYTES
         transcript.TAIL_READ_BYTES = 200

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs teacherlang.make_app from this checkout without installing the package.
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+PYTHON=${TEACHERLANG_PYTHON:-python3}
+PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" exec "$PYTHON" -m teacherlang.make_app "$@"

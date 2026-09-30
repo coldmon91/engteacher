@@ -1,6 +1,12 @@
 import unittest
 
-from teacherlang.input_filter import TutorInput, detect_language, select_tutor_input, strip_non_prose
+from teacherlang.input_filter import (
+    CodePlaceholders,
+    TutorInput,
+    detect_language,
+    select_tutor_input,
+    strip_non_prose,
+)
 
 
 class SelectTutorInputTest(unittest.TestCase):
@@ -68,6 +74,12 @@ class StripNonProseTest(unittest.TestCase):
         prompt = "`[translation]` 섹션은 `원문` `개선` 과 중복이야 `[translation]` 은 제거"
         self.assertEqual(strip_non_prose(prompt), "{A} 섹션은 {B} {C} 과 중복이야 {A} 은 제거")
 
+    def test_shared_placeholders_continue_across_texts(self):
+        placeholders = CodePlaceholders()
+        self.assertEqual(strip_non_prose("`foo` 확인", placeholders), "{A} 확인")
+        self.assertEqual(strip_non_prose("`bar` 와 `foo`", placeholders), "{B} 와 {A}")
+        self.assertEqual(strip_non_prose("`bar` 만"), "{A} 만")
+
     def test_fenced_code_becomes_placeholder_in_order(self):
         prompt = "`foo` 대신\n```\nx = 1\n```\n이렇게 바꿔줘 ```x = 1``` 도 같아"
         self.assertEqual(strip_non_prose(prompt), "{A} 대신\n{B}\n이렇게 바꿔줘 {B} 도 같아")
@@ -79,6 +91,18 @@ class StripNonProseTest(unittest.TestCase):
         for prompt in ('백틱 세 개 "```" 로 묶인 경우도 치환하도록 해줘',
                        "이 코드 봐줘 ```\nx = 1\ny = 2"):
             self.assertEqual(strip_non_prose(prompt), prompt)
+
+    def test_inline_code_across_line_breaks_becomes_placeholder(self):
+        prompt = ("`user@host » pi\n"
+                  'Error: Failed to load extension "/Users/me/ext.test.ts": no factory:\n'
+                  'Error: Failed to load extension "/Users/me/ext.ts": no factory: `\n'
+                  "문제가 발생하고있어")
+        self.assertEqual(strip_non_prose(prompt), "{A}\n문제가 발생하고있어")
+
+    def test_inline_code_does_not_cross_blank_line(self):
+        prompt = "`foo()` 먼저 보고\n\n그다음 `bar() 를 확인해줘\n\n마지막으로 baz()` 도"
+        self.assertEqual(strip_non_prose(prompt),
+                         "{A} 먼저 보고\n그다음 `bar() 를 확인해줘\n마지막으로 baz()` 도")
 
     def test_fence_inside_pasted_content_does_not_leak(self):
         prompt = "<pasted_content id=1>log ``` unclosed</pasted_content> 이 로그를 분석해줘"

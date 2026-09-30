@@ -10,7 +10,7 @@ Claude Code 프롬프트 제출
   └─ UserPromptSubmit hook (async, 세션 지연 없음)
        bin/teacherlang-hook
          ├─ input_filter : slash/bash 명령, 코드, URL·경로, 짧은 답변, 긴 붙여넣기 제외
-         ├─ transcript   : 같은 세션의 최근 대화 6개를 맥락으로 추출
+         ├─ transcript   : 같은 세션의 최근 대화 6개를 맥락으로 추출 (input_filter 와 같은 치환 적용)
          ├─ tutor        : 격리된 `claude -p` (기본 Haiku) 또는 `codex exec` 호출 (`model.json` 의 provider)
          └─ store        : ~/.local/state/teacherlang/lessons.jsonl 에 추가 (날짜가 바뀌면 지난 기록 압축 보관)
 bin/teacherlang-view  ── lessons.jsonl 을 tail -f 처럼 읽어 표시 (부족한 history는 보관본에서 채움)
@@ -102,6 +102,21 @@ bin/teacherlang-gui --topmost --font-size 16   # 이번 실행만 저장된 설�
   - `$TEACHERLANG_HOME/notes.json` 에 카드 전체를 복사해 저장하므로 기록 보관기간이 지나 원본이 삭제돼도 유지 (권한 `0600`)
   - 노트 파일이 손상되면 덮어쓰지 않고 저장을 막은 뒤 아래쪽 안내 줄에 표시. 파일을 고치거나 옮긴 뒤 모드를 전환하면 다시 읽음
 - 종료: 창 닫기, `Cmd-W`, 실행한 터미널에서 `Ctrl-C`
+
+## Dock 이름·아이콘 (`TeacherLang.app`)
+
+`bin/teacherlang-gui` 로 실행하면 macOS Dock 에 `Python` 으로 표시됨. Dock 라벨은 실행 파일이 든 번들 기준이라 런타임 코드로는 바꿀 수 없음.
+
+```sh
+bin/teacherlang-make-app --dry-run   # 만들어질 위치·기존 앱과의 diff만 확인
+bin/teacherlang-make-app             # ~/Applications/TeacherLang.app 생성
+open ~/Applications/TeacherLang.app
+```
+
+- 번들 안에 Python 프레임워크 스텁 복사본(`Contents/MacOS/TeacherLang`)을 두고 ad-hoc 재서명. 소스는 이 checkout 을 그대로 참조 (`PYTHONPATH`)
+- 기존 앱이 있으면 교체 전 diff 를 보여주고 확인 (`-y` 로 생략). TeacherLang 앱이 아닌 경로는 건드리지 않음
+- 다음 경우 다시 생성: Homebrew Python 업그레이드, checkout 경로 이동
+- 프레임워크 Python(Homebrew 등)만 지원. 사용할 Python 은 `TEACHERLANG_PYTHON` 으로 지정
 
 ## 설정 (환경변수)
 

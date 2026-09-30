@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ from pathlib import Path
 from teacherlang.config import load_config
 from teacherlang.follow import LessonFollower
 from teacherlang.hook import handle_event
+from teacherlang.transcript import Turn
 from teacherlang.render import (
     ANSI_CODES,
     DETAIL,
@@ -52,6 +54,29 @@ class HandleEventTest(unittest.TestCase):
         follower = LessonFollower(self.config.lessons_path)
         self.addCleanup(follower.close)
         self.assertEqual(follower.history(5), [record])
+
+    def test_context_shares_placeholders_with_message(self):
+        transcript = Path(self._dir.name) / "session.jsonl"
+        earlier = {"type": "user", "message": {"role": "user",
+                   "content": "`foo()` 와 `bar()` 차이 알려줘\n<pasted_content>raw log</pasted_content>"}}
+        transcript.write_text(json.dumps(earlier) + "\n", encoding="utf-8")
+        event = {"prompt": "`bar()` 는 어디서 호출돼", "transcript_path": str(transcript)}
+        seen = {}
+
+        def capture(tutor_input, context, config):
+            seen.update(text=tutor_input.text, context=context)
+            return LESSON
+
+        handle_event(event, self.config, request_lesson=capture)
+        self.assertEqual(seen["text"], "{A} 는 어디서 호출돼")
+        self.assertEqual(seen["context"], [Turn("user", "{B} 와 {A} 차이 알려줘")])
+
+    def test_natural_english_is_not_logged(self):
+        natural = {**LESSON, "needs_fix": False, "improved": "I went to school yesterday."}
+        event = {"prompt": "I went to school yesterday.", "session_id": "s1", "cwd": "/tmp/proj"}
+
+        self.assertIsNone(handle_event(event, self.config, request_lesson=lambda *a: natural))
+        self.assertFalse(self.config.lessons_path.exists())
 
     def test_skipped_prompt_does_not_call_tutor(self):
         def fail(*args):

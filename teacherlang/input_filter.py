@@ -10,11 +10,14 @@ Language = Literal["en", "ko"]
 # A fence opens only at a line start and runs to a matching closing line or the end.
 # An inline span closes on a run of exactly as many backticks; an unmatched run is literal,
 # so a quoted '```' in the middle of a sentence stays text.
+# As in CommonMark, an inline span may cross a line break but not a blank line.
 # The span length cap keeps unmatched runs from scanning whole lines (quadratic time).
 MAX_INLINE_CODE_CHARS = 500
+_INLINE_CODE_CHAR = r"(?:[^\n]|\n(?![ \t]*\n))"
 _BACKTICK_CODE = re.compile(
     r"^[ \t]*(?P<fence>`{3,})[^`\n]*$.*?(?:^[ \t]*(?P=fence)`*[ \t]*$|\Z)"
-    rf"|(?<!`)(?P<ticks>`+)(?!`)(?P<inline>[^\n]{{0,{MAX_INLINE_CODE_CHARS}}}?)(?<!`)(?P=ticks)(?!`)",
+    rf"|(?<!`)(?P<ticks>`+)(?!`)(?P<inline>{_INLINE_CODE_CHAR}{{0,{MAX_INLINE_CODE_CHARS}}}?)"
+    r"(?<!`)(?P=ticks)(?!`)",
     re.DOTALL | re.MULTILINE,
 )
 # Characters and shapes that mark a backtick span as code rather than a quoted sentence.
@@ -60,13 +63,26 @@ def _placeholder_label(index: int) -> str:
     return label
 
 
-def _replace_backtick_code(text: str) -> str:
-    """Replaces fenced blocks and inline spans with {A}, {B}, ...
+class CodePlaceholders:
+    """Hands out {A}, {B}, ... for code; one instance shared across texts keeps labels consistent.
 
-    An inline span holding a sentence is kept as prose instead.
     Repeated code shares one label so the tutor sees it refers to the same thing.
     """
-    labels: dict[str, str] = {}
+
+    def __init__(self) -> None:
+        self._labels: dict[str, str] = {}
+
+    def placeholder(self, code: str) -> str:
+        if code not in self._labels:
+            self._labels[code] = _placeholder_label(len(self._labels))
+        return f"{{{self._labels[code]}}}"
+
+
+def _replace_backtick_code(text: str, placeholders: CodePlaceholders) -> str:
+    """Replaces fenced blocks and inline spans with placeholders.
+
+    An inline span holding a sentence is kept as prose instead.
+    """
 
     def replace(match: re.Match[str]) -> str:
         inline_content = match.group("inline")
@@ -75,17 +91,17 @@ def _replace_backtick_code(text: str) -> str:
         code = match.group(0).strip().strip("`").strip()
         if not code:
             return " "
-        if code not in labels:
-            labels[code] = _placeholder_label(len(labels))
-        return f"{{{labels[code]}}}"
+        return placeholders.placeholder(code)
 
     return _BACKTICK_CODE.sub(replace, text)
 
 
-def strip_non_prose(prompt: str) -> str:
+def strip_non_prose(prompt: str, placeholders: CodePlaceholders | None = None) -> str:
     # Tagged blocks go first: pasted content often holds fences that must not leak out.
     text = _TAGGED_BLOCK.sub(" ", prompt)
-    text = _replace_backtick_code(text)
+    if placeholders is None:
+        placeholders = CodePlaceholders()
+    text = _replace_backtick_code(text, placeholders)
     text = _URL.sub(" ", text)
     text = _MENTION_OR_PATH.sub(" ", text)
     lines = (" ".join(line.split()) for line in text.splitlines())
@@ -103,11 +119,13 @@ def detect_language(text: str) -> Language | None:
     return None
 
 
-def select_tutor_input(prompt: str, max_chars: int) -> TutorInput | None:
+def select_tutor_input(
+    prompt: str, max_chars: int, placeholders: CodePlaceholders | None = None
+) -> TutorInput | None:
     """Returns the prose to tutor, or None when the prompt should be skipped."""
     if not prompt or prompt.lstrip().startswith(_COMMAND_PREFIXES):
         return None
-    text = strip_non_prose(prompt)
+    text = strip_non_prose(prompt, placeholders)
     # Very long input is almost always pasted material, not the user's writing.
     if not text or len(text) > max_chars:
         return None

@@ -11,7 +11,7 @@ from datetime import datetime
 
 from . import tutor
 from .config import RECURSION_GUARD_ENV, Config, load_config
-from .input_filter import select_tutor_input
+from .input_filter import CodePlaceholders, select_tutor_input, strip_non_prose
 from .store import append_error, append_lesson
 from .transcript import recent_turns
 
@@ -19,11 +19,13 @@ MAX_STDIN_BYTES = 4 * 1024 * 1024
 
 
 def handle_event(event: dict, config: Config, request_lesson=tutor.request_lesson) -> dict | None:
-    """Returns the logged lesson record, or None when the prompt was skipped."""
+    """Returns the logged lesson record, or None when the prompt was skipped or needed no fix."""
     prompt = event.get("prompt")
     if not isinstance(prompt, str):
         return None
-    tutor_input = select_tutor_input(prompt, config.max_prompt_chars)
+    # Shared by message and context, so the same code gets the same label in both.
+    placeholders = CodePlaceholders()
+    tutor_input = select_tutor_input(prompt, config.max_prompt_chars, placeholders)
     if tutor_input is None:
         return None
 
@@ -32,8 +34,11 @@ def handle_event(event: dict, config: Config, request_lesson=tutor.request_lesso
         max_turns=config.context_messages,
         max_chars_per_turn=config.context_chars_per_message,
         exclude_text=prompt,
+        clean_text=lambda text: strip_non_prose(text, placeholders),
     )
     lesson = request_lesson(tutor_input, context, config)
+    if _is_natural_english(tutor_input.language, lesson):
+        return None
     record = {
         "time": datetime.now().astimezone().isoformat(timespec="seconds"),
         "session_id": event.get("session_id"),
@@ -44,6 +49,11 @@ def handle_event(event: dict, config: Config, request_lesson=tutor.request_lesso
     }
     append_lesson(config.lessons_path, record, config.retention_days)
     return record
+
+
+def _is_natural_english(language: str, lesson: dict) -> bool:
+    # Only an explicit False skips; a malformed needs_fix still shows the lesson.
+    return language == "en" and lesson.get("needs_fix") is False
 
 
 def main() -> int:
