@@ -56,7 +56,7 @@ def _card_lines(record: dict) -> list[str]:
 
 def _block_lines(block: Block) -> list[str]:
     if block.kind == FIELD:
-        return [f"- **{block.label}** {_spans_markdown(block.spans, at_line_start=False)}"]
+        return [f"- {block.label}: {_spans_markdown(block.spans, at_line_start=False)}"]
     if block.kind == SECTION:
         return ["", f"#### {block.label}", ""]
     if block.kind == ITEM:

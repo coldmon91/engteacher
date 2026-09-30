@@ -37,8 +37,8 @@ class NotesMarkdownTest(unittest.TestCase):
             "",
             "### 13:55 · my\\_app · ✎ 교정",
             "",
-            "- **원문** make gui simple",
-            "- **개선** **Make the GUI simpler.**",
+            "- 원문: make gui simple",
+            "- 개선: **Make the GUI simpler.**",
             "",
             "#### 변경",
             "",
@@ -73,7 +73,7 @@ class NotesMarkdownTest(unittest.TestCase):
         record = {"time": "2026-09-28T10:00:00", "original": "*a* _b_ <br> `code`\nnext",
                   "lesson": {"examples": ["# not a heading", "1. not a list", "- dash"]}}
         lines = notes_markdown([record], EXPORTED_AT).splitlines()
-        self.assertIn("- **원문** \\*a\\* \\_b\\_ \\<br> `code` next", lines)
+        self.assertIn("- 원문: \\*a\\* \\_b\\_ \\<br> `code` next", lines)
         self.assertIn("- \\# not a heading", lines)
         self.assertIn("- 1\\. not a list", lines)
         self.assertIn("- \\- dash", lines)
@@ -82,7 +82,7 @@ class NotesMarkdownTest(unittest.TestCase):
         text = notes_markdown([{"original": "hi", "lesson": "broken"}], EXPORTED_AT)
         self.assertIn("## 날짜 없음", text)
         self.assertIn("### --:-- · - · ✓ 자연스러운 문장", text)
-        self.assertIn("- **원문** hi", text)
+        self.assertIn("- 원문: hi", text)
 
     def test_empty_notes(self):
         self.assertEqual(notes_markdown([], EXPORTED_AT),

@@ -348,7 +348,7 @@ class LessonWindow:
             self._text.insert("end", text, (block.kind, *(tag for tag in tags if tag)))
 
         if block.kind == FIELD:
-            insert(block.label, "label")
+            insert(f"{block.label}:", "field_label")
             insert("\t")
         elif block.kind == SECTION and block.label == ALTERNATIVES_SECTION:
             heading = (f"{block.label} {UNFOLDED_MARK}" if self._show_alternatives
@@ -370,7 +370,7 @@ class LessonWindow:
         """Sizes margins and spacing from the current fonts; rerun after a font change."""
         fonts = self._fonts
         line = fonts.body.metrics("linespace")
-        label_column = max(fonts.body.measure(label) for label in ("원문", "개선")) + line
+        label_column = max(fonts.small.measure(label) for label in ("원문:", "개선:")) + line
         bullet = fonts.body.measure("·  ")
         indent = fonts.body.measure("0")
         text = self._text
@@ -383,9 +383,10 @@ class LessonWindow:
         text.tag_configure(ITEM, lmargin1=indent, lmargin2=indent + bullet, spacing1=line // 5)
         text.tag_configure(DETAIL, lmargin1=indent + bullet, lmargin2=indent + bullet)
         text.tag_configure("label", foreground=self._palette.secondary)
+        text.tag_configure("field_label", font=fonts.small, foreground=self._palette.secondary)
         text.tag_configure(FOLD_TOGGLE_TAG, foreground=self._fold_toggle_color())
         # Character colors win over the line colors above; tags made later take priority.
-        for tag in (*TAG_COLORS, *FONT_TAGS, "label", "meta", FOLD_TOGGLE_TAG):
+        for tag in (*TAG_COLORS, *FONT_TAGS, "label", "field_label", "meta", FOLD_TOGGLE_TAG):
             text.tag_raise(tag)
         self._place_header_tab()
 
