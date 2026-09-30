@@ -69,13 +69,17 @@ def _strings(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str) and item] if isinstance(value, list) else []
 
 
+def project_name(record: dict) -> str:
+    """The last directory of the lesson's working directory, or "-" when unknown."""
+    return Path(str(record.get("cwd") or "")).name or "-"
+
+
 def _header(record: dict) -> Block:
     try:
         clock = datetime.fromisoformat(str(record.get("time"))).strftime("%H:%M:%S")
     except ValueError:
         clock = "--:--:--"
-    project = Path(str(record.get("cwd") or "")).name or "-"
-    return Block(HEADER, [Span(f"{clock} · {project}", "dim")])
+    return Block(HEADER, [Span(f"{clock} · {project_name(record)}", "dim")])
 
 
 def _headline(record: dict, lesson: dict) -> Block:

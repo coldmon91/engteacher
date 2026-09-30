@@ -8,6 +8,7 @@ import signal
 import sys
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 from .card_browser import ALL_MODE, NOTES_MODE, CardBrowser
@@ -17,13 +18,16 @@ from .gui_settings import GuiSettings, clamp_font_size, load_gui_settings, save_
 from .gui_theme import FONT_TAGS, SAVED_COLOR, TAG_COLORS, CardFonts, palette_for
 from .macos_app_name import set_macos_app_name
 from .model_settings import ModelSettings, load_model_settings, save_model_settings
-from .notes import NoteStore
+from .notes import NotesError, NoteStore
+from .notes_markdown import notes_markdown
 from .render import DETAIL, FIELD, HEADER, HEADLINE, ITEM, SECTION, Block, lesson_blocks
+from .settings_file import write_text_atomic
 from .startup_install import SKIP_FLAG, SKIP_FLAG_HELP
 from .storage_settings import StorageSettings, load_storage_settings, save_storage_settings
 
 try:
     import tkinter as tk
+    from tkinter import filedialog
     from tkinter import font as tkfont
     from tkinter import messagebox
 
@@ -44,6 +48,8 @@ NOTES_ERROR_MESSAGE = "노트 파일을 읽을 수 없습니다: {path}"
 SAVE_LABEL = "☆"
 SAVED_LABEL = "★"
 SETTINGS_LABEL = "⚙"
+EXPORT_LABEL = "내보내기"
+EXPORT_FILE_NAME = "teacherlang-notes.md"
 # Shortcut letters, plus the jamo the same keys type under the Korean 2-set layout.
 SAVE_KEYS = frozenset("sSㄴ")
 MODE_KEYS = frozenset("nNㅜ")
@@ -87,6 +93,7 @@ class LessonWindow:
         self._watch_label = watch_label
         self._interval_ms = interval_ms
         self._browser = CardBrowser(note_store)
+        self._note_store = note_store
         self._notes_path = note_store.path
         self._watch_error = ""
         self._show_alternatives = False
@@ -149,6 +156,7 @@ class LessonWindow:
         button(tool_bar, SETTINGS_LABEL, on_open_settings, self._icon_font).pack(side="right")
         self._save_button = button(tool_bar, SAVE_LABEL, self._toggle_saved, self._icon_font)
         self._save_button.pack(side="right")
+        button(tool_bar, EXPORT_LABEL, self._export_notes, self._ui_font).pack(side="right")
         separator().pack(side="top", fill="x")
 
         # Bound on the root only, so keys typed in the settings dialog do not flip cards.
@@ -247,6 +255,31 @@ class LessonWindow:
             messagebox.showerror("TeacherLang", f"노트를 저장하지 못했습니다.\n{error}",
                                  parent=self._root)
         self._update_save_button()
+
+    def _export_notes(self) -> None:
+        """Writes the saved notes, re-read from the file, to a Markdown file the user picks."""
+        try:
+            notes = self._note_store.load()
+        except NotesError as error:
+            messagebox.showerror(APP_NAME, f"{self._notes_error_message()}\n{error}",
+                                 parent=self._root)
+            return
+        self._update_save_button()  # The reload may show another window's changes.
+        if not notes:
+            messagebox.showinfo(APP_NAME, EMPTY_NOTES_MESSAGE, parent=self._root)
+            return
+        # The native dialog confirms before replacing an existing file.
+        path = filedialog.asksaveasfilename(
+            parent=self._root, title="노트 내보내기", initialdir=str(Path.home()),
+            initialfile=EXPORT_FILE_NAME, defaultextension=".md",
+            filetypes=[("Markdown", "*.md")])
+        if not path:
+            return
+        try:
+            write_text_atomic(Path(path), notes_markdown(notes, datetime.now()))
+        except OSError as error:
+            messagebox.showerror(APP_NAME, f"노트를 내보내지 못했습니다.\n{error}",
+                                 parent=self._root)
 
     def _toggle_alternatives(self) -> None:
         self._show_alternatives = not self._show_alternatives
