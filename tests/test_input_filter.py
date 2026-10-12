@@ -33,9 +33,8 @@ class SelectTutorInputTest(unittest.TestCase):
     def test_long_input_is_skipped(self):
         self.assertIsNone(select_tutor_input("word " * 1000, 2000))
 
-    def test_backtick_wrapped_sentence_is_selected(self):
-        result = select_tutor_input("`I has went to school yesterday.`", 2000)
-        self.assertEqual(result, TutorInput(text="I has went to school yesterday.", language="en"))
+    def test_backtick_wrapped_sentence_is_skipped(self):
+        self.assertIsNone(select_tutor_input("`I has went to school yesterday.`", 2000))
 
     def test_code_only_prompt_is_skipped(self):
         self.assertIsNone(select_tutor_input("```\nprint('hello world here')\n```", 2000))
@@ -57,12 +56,14 @@ class StripNonProseTest(unittest.TestCase):
         prompt = 'hello there <pasted_content id="ab">raw log line</pasted_content id="ab"> thanks'
         self.assertEqual(strip_non_prose(prompt), "hello there thanks")
 
-    def test_backtick_quoted_sentence_is_unwrapped(self):
+    def test_backtick_quoted_sentence_becomes_placeholder(self):
         for sentence in ("I has went to school yesterday.", "Can you checks this?",
                          "이 문장을 영어로 바꿔줘"):
-            self.assertEqual(strip_non_prose(f"`{sentence}`"), sentence)
-        self.assertEqual(strip_non_prose("check `this sentence is fine` please"),
-                         "check this sentence is fine please")
+            self.assertEqual(strip_non_prose(f"`{sentence}`"), "{A}")
+        self.assertEqual(strip_non_prose("check `this sentence is fine` please"), "check {A} please")
+        prompt = ("네가 말한 `2. 응답 없이 agent 연결 종료 324건` 에서 "
+                  "`정상 종료·재로그인 205건` 부분이 납득이 안돼.")
+        self.assertEqual(strip_non_prose(prompt), "네가 말한 {A} 에서 {B} 부분이 납득이 안돼.")
 
     def test_backtick_code_becomes_placeholder(self):
         for code in ("/eng", "foo()", "convertor.go", "docker images", "TKO-DECODE-RV-1",

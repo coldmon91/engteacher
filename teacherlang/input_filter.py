@@ -7,6 +7,7 @@ from typing import Literal
 Language = Literal["en", "ko"]
 
 # Markdown code, matched in one pass so placeholders are lettered in order of appearance.
+# Every span becomes a placeholder, so its content never reaches the tutor, prose or not.
 # A fence opens only at a line start and runs to a matching closing line or the end.
 # An inline span closes on a run of exactly as many backticks; an unmatched run is literal,
 # so a quoted '```' in the middle of a sentence stays text.
@@ -20,8 +21,6 @@ _BACKTICK_CODE = re.compile(
     r"(?<!`)(?P=ticks)(?!`)",
     re.DOTALL | re.MULTILINE,
 )
-# Characters and shapes that mark a backtick span as code rather than a quoted sentence.
-_CODE_HINT = re.compile(r"[(){}\[\]<>=;$\\|/_*#@&^+]|\w\.\w|(?:^|\s)-")
 # Pasted content, system reminders and similar tagged blocks are not user prose.
 # Claude Code repeats attributes on the closing tag, e.g. </pasted_content id="ab12">.
 _TAGGED_BLOCK = re.compile(r"<([A-Za-z][\w-]*)[^>]*>.*?</\1(?:\s[^>]*)?>", re.DOTALL)
@@ -43,14 +42,6 @@ MIN_HANGUL_SYLLABLES = 4
 class TutorInput:
     text: str
     language: Language
-
-
-def _looks_like_prose(text: str) -> bool:
-    if _CODE_HINT.search(text):
-        return False
-    english_words = sum(1 for token in text.split() if _LATIN_WORD.search(token))
-    return (len(_HANGUL_SYLLABLE.findall(text)) >= MIN_HANGUL_SYLLABLES
-            or english_words >= MIN_ENGLISH_WORDS)
 
 
 def _placeholder_label(index: int) -> str:
@@ -79,15 +70,9 @@ class CodePlaceholders:
 
 
 def _replace_backtick_code(text: str, placeholders: CodePlaceholders) -> str:
-    """Replaces fenced blocks and inline spans with placeholders.
-
-    An inline span holding a sentence is kept as prose instead.
-    """
+    """Replaces fenced blocks and inline spans with placeholders."""
 
     def replace(match: re.Match[str]) -> str:
-        inline_content = match.group("inline")
-        if inline_content is not None and _looks_like_prose(inline_content):
-            return inline_content
         code = match.group(0).strip().strip("`").strip()
         if not code:
             return " "
