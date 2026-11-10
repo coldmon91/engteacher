@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .card_browser import ALL_MODE, NOTES_MODE, CardBrowser
-from .config import load_config
+from .config import Config, load_config
 from .follow import LessonFollower
 from .gui_settings import GuiSettings, clamp_font_size, load_gui_settings, save_gui_settings
 from .gui_theme import FONT_TAGS, SAVED_COLOR, TAG_COLORS, CardFonts, palette_for
@@ -22,6 +22,9 @@ from .notes import NotesError, NoteStore
 from .notes_markdown import notes_markdown
 from .render import DETAIL, FIELD, HEADER, HEADLINE, ITEM, SECTION, Block, lesson_blocks
 from .settings_file import write_text_atomic
+from .speech_cache import SpeechCache
+from .speech_player import SpeechPlayer, playback_available
+from .speech_settings import SpeechSettings, load_speech_settings, save_speech_settings
 from .startup_install import SKIP_FLAG, SKIP_FLAG_HELP
 from .storage_settings import StorageSettings, load_storage_settings, save_storage_settings
 
@@ -33,6 +36,7 @@ try:
 
     from .gui_install_prompt import offer_install_in_dialog
     from .gui_settings_dialog import SettingsDialog
+    from .gui_speech import PLAY_LABEL, SpeechControl
     from .gui_widgets import FlatButton
 except ImportError:  # Homebrew Python ships Tk as a separate formula.
     tk = None
@@ -87,7 +91,8 @@ def _startup_settings(saved: GuiSettings, args: argparse.Namespace) -> GuiSettin
 class LessonWindow:
     def __init__(self, root: "tk.Tk", follower: LessonFollower, watch_label: str,
                  interval_ms: int, font_size: int, on_open_settings: Callable[[], None],
-                 note_store: NoteStore):
+                 note_store: NoteStore, speech_player: SpeechPlayer | None,
+                 speech_settings: SpeechSettings):
         self._root = root
         self._follower = follower
         self._watch_label = watch_label
@@ -96,6 +101,8 @@ class LessonWindow:
         self._note_store = note_store
         self._notes_path = note_store.path
         self._watch_error = ""
+        self._speech_error = ""
+        self._speech: SpeechControl | None = None
         self._show_alternatives = False
         self._fold_hovered = False
         self._palette = palette_for(root.tk.call("tk", "windowingsystem"))
@@ -157,6 +164,12 @@ class LessonWindow:
         self._save_button = button(tool_bar, SAVE_LABEL, self._toggle_saved, self._icon_font)
         self._save_button.pack(side="right")
         button(tool_bar, EXPORT_LABEL, self._export_notes, self._ui_font).pack(side="right")
+        if speech_player is not None:
+            speech_button = button(tool_bar, PLAY_LABEL, lambda: self._speech.toggle(),
+                                   self._ui_font)
+            speech_button.pack(side="right")
+            self._speech = SpeechControl(root, speech_button, speech_player, speech_settings,
+                                         self._set_speech_error)
         separator().pack(side="top", fill="x")
 
         # Bound on the root only, so keys typed in the settings dialog do not flip cards.
@@ -192,6 +205,14 @@ class LessonWindow:
         self._fonts.resize(size)
         self._configure_layout_tags()
 
+    def set_speech_settings(self, settings: SpeechSettings) -> None:
+        if self._speech is not None:
+            self._speech.set_settings(settings)
+
+    def close(self) -> None:
+        if self._speech is not None:
+            self._speech.close()
+
     def show_history(self, limit: int) -> None:
         try:
             self._add_lessons(self._follower.history(limit))
@@ -204,18 +225,21 @@ class LessonWindow:
 
     def _poll(self) -> None:
         try:
-            self._add_lessons(self._follower.poll())
+            self._add_lessons(self._follower.poll(), auto_play=True)
             self._set_watch_error("")
         except OSError as error:
             # Keep the window alive; the next poll retries.
             self._set_watch_error(f"cannot read {self._watch_label}: {error}")
         self._root.after(self._interval_ms, self._poll)
 
-    def _add_lessons(self, lessons: list[dict]) -> None:
+    def _add_lessons(self, lessons: list[dict], auto_play: bool = False) -> None:
+        """`auto_play` reads a newly shown card aloud when the user turned that on."""
         if not lessons:
             return
         if self._browser.add_lessons(lessons):
             self._render_card()
+            if auto_play and self._speech is not None and self._speech.auto_play:
+                self._speech.play(manual=False)
         else:
             # A user reading an older card keeps it; only the count changes.
             self._update_nav()
@@ -293,6 +317,8 @@ class LessonWindow:
         self._draw_card()
         self._text.yview_moveto(0)
         self._update_nav()
+        if self._speech is not None:
+            self._speech.show_card(self._browser.current())
 
     def _draw_card(self) -> None:
         record = self._browser.current()
@@ -458,10 +484,15 @@ class LessonWindow:
         self._watch_error = message
         self._show_status()
 
+    def _set_speech_error(self, message: str) -> None:
+        if message != self._speech_error:
+            self._speech_error = message
+            self._show_status()
+
     def _show_status(self) -> None:
-        """An unreadable notes file outranks the log error until it is fixed."""
+        """An unreadable notes file outranks the log error, which outranks a speech error."""
         message = (self._notes_error_message() if self._browser.notes_error is not None
-                   else self._watch_error)
+                   else self._watch_error or self._speech_error)
         if self._status.cget("text") != message:
             self._status.configure(text=message)
         if message and not self._status.winfo_manager():
@@ -475,12 +506,16 @@ class SettingsController:
     """Applies settings to the running window and saves every change made in the dialog."""
 
     def __init__(self, root: "tk.Tk", settings: GuiSettings, settings_path: Path,
-                 model_settings_path: Path, storage_settings_path: Path):
+                 model_settings_path: Path, storage_settings_path: Path,
+                 speech_settings: SpeechSettings | None, speech_settings_path: Path):
+        """`speech_settings` is None when this machine cannot play speech."""
         self._root = root
         self._settings = settings
         self._settings_path = settings_path
         self._model_settings_path = model_settings_path
         self._storage_settings_path = storage_settings_path
+        self._speech_settings = speech_settings
+        self._speech_settings_path = speech_settings_path
         self._window: LessonWindow | None = None
         self._dialog: SettingsDialog | None = None
 
@@ -500,7 +535,8 @@ class SettingsController:
         storage_settings = load_storage_settings(self._storage_settings_path)
         self._dialog = SettingsDialog(self._root, self._settings, model_settings, storage_settings,
                                       self._change, self._change_model, self._change_storage,
-                                      self._saved_model_for)
+                                      self._saved_model_for, self._speech_settings,
+                                      self._change_speech)
 
     def _change(self, settings: GuiSettings) -> None:
         if settings.always_on_top != self._settings.always_on_top:
@@ -523,6 +559,15 @@ class SettingsController:
     def _change_storage(self, settings: StorageSettings) -> None:
         try:
             save_storage_settings(self._storage_settings_path, settings)
+        except OSError as error:
+            self._show_save_error(error)
+
+    def _change_speech(self, settings: SpeechSettings) -> None:
+        self._speech_settings = settings
+        if self._window is not None:
+            self._window.set_speech_settings(settings)
+        try:
+            save_speech_settings(self._speech_settings_path, settings)
         except OSError as error:
             self._show_save_error(error)
 
@@ -551,6 +596,16 @@ def _set_app_icon(root: "tk.Tk") -> None:
     root.app_icon = icon  # Keeps the image alive as long as the window.
 
 
+def _speech_setup(config: Config) -> tuple[SpeechPlayer | None, SpeechSettings]:
+    """Returns no player where afplay is missing; prunes stale audio once per start."""
+    settings = load_speech_settings(config.speech_settings_path)
+    if not playback_available():
+        return None, settings
+    cache = SpeechCache(config.speech_cache_dir)
+    cache.prune()
+    return SpeechPlayer(cache), settings
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if tk is None:
@@ -570,9 +625,11 @@ def main(argv: list[str] | None = None) -> int:
     # The periodic poll gives Python a chance to run this handler while Tk waits for events.
     signal.signal(signal.SIGINT, lambda *_: root.quit())
 
+    speech_player, speech_settings = _speech_setup(config)
     controller = SettingsController(
         root, _startup_settings(load_gui_settings(config.gui_settings_path), args),
-        config.gui_settings_path, config.model_settings_path, config.storage_settings_path)
+        config.gui_settings_path, config.model_settings_path, config.storage_settings_path,
+        speech_settings if speech_player is not None else None, config.speech_settings_path)
     if root.tk.call("tk", "windowingsystem") == "aqua":
         # Enables the app menu's Settings… item and its Cmd-, shortcut.
         root.createcommand("tk::mac::ShowPreferences", controller.open_dialog)
@@ -581,7 +638,8 @@ def main(argv: list[str] | None = None) -> int:
                           interval_ms=int(max(0.1, args.interval) * 1000),
                           font_size=controller.settings.font_size,
                           on_open_settings=controller.open_dialog,
-                          note_store=NoteStore(config.notes_path))
+                          note_store=NoteStore(config.notes_path),
+                          speech_player=speech_player, speech_settings=speech_settings)
     controller.attach(window)
     window.show_history(args.history)
     window.start_polling()
@@ -589,6 +647,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_install_check:
         root.after_idle(offer_install_in_dialog, root)
     root.mainloop()
+    window.close()  # Stops speech even when the window was closed mid-sentence.
     try:
         root.destroy()
     except tk.TclError:

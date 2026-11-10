@@ -7,6 +7,7 @@ from tkinter import ttk
 
 from .gui_settings import FONT_SIZE_MAX, FONT_SIZE_MIN, GuiSettings, clamp_font_size
 from .model_settings import PROVIDERS, ModelSettings, is_valid_model
+from .speech_settings import VOICES, SpeechSettings
 from .storage_settings import (RETENTION_DAYS_MAX, RETENTION_DAYS_MIN, StorageSettings,
                                clamp_retention_days)
 
@@ -17,8 +18,13 @@ class SettingsDialog:
                  on_change: Callable[[GuiSettings], None],
                  on_model_change: Callable[[ModelSettings], None],
                  on_storage_change: Callable[[StorageSettings], None],
-                 saved_model_for: Callable[[str], str]):
+                 saved_model_for: Callable[[str], str],
+                 speech_settings: SpeechSettings | None,
+                 on_speech_change: Callable[[SpeechSettings], None]):
+        """The 음성 section is left out when `speech_settings` is None."""
         self._settings = settings
+        self._speech_settings = speech_settings
+        self._on_speech_change = on_speech_change
         self._model_settings = model_settings
         self._storage_settings = storage_settings
         self._on_change = on_change
@@ -86,12 +92,46 @@ class SettingsDialog:
                  fg="gray55", justify="left").grid(row=8, column=0, columnspan=2, sticky="w",
                                                    padx=16, pady=(4, 0))
 
-        tk.Button(top, text="닫기", command=self.close).grid(row=9, column=0, columnspan=2,
+        next_row = 9
+        if speech_settings is not None:
+            next_row = self._add_speech_section(top, next_row, speech_settings)
+
+        tk.Button(top, text="닫기", command=self.close).grid(row=next_row, column=0, columnspan=2,
                                                             sticky="e", padx=16, pady=16)
         top.protocol("WM_DELETE_WINDOW", self.close)
         top.bind("<Escape>", lambda _event: self.close())
         top.bind("<Command-w>", lambda _event: self.close())
         self.focus()
+
+    def _add_speech_section(self, top: tk.Toplevel, row: int, settings: SpeechSettings) -> int:
+        """Lays out the 음성 rows from `row`; returns the next free row."""
+        ttk.Separator(top).grid(row=row, column=0, columnspan=2, sticky="ew", padx=16, pady=12)
+
+        self._auto_play_var = tk.BooleanVar(value=settings.auto_play)
+        tk.Checkbutton(top, text="새 기록 자동 재생", variable=self._auto_play_var,
+                       command=self._apply_speech).grid(row=row + 1, column=0, columnspan=2,
+                                                        sticky="w", padx=16, pady=(0, 8))
+
+        tk.Label(top, text="음성").grid(row=row + 2, column=0, sticky="w", padx=(16, 8))
+        self._voice_var = tk.StringVar(value=settings.voice)
+        voice_box = ttk.Combobox(top, textvariable=self._voice_var, state="readonly",
+                                 values=list(VOICES), width=12)
+        voice_box.grid(row=row + 2, column=1, sticky="w", padx=(0, 16))
+        voice_box.bind("<<ComboboxSelected>>", lambda _event: self._apply_speech())
+
+        tk.Label(top, text="OpenAI API 키").grid(row=row + 3, column=0, sticky="w",
+                                                padx=(16, 8), pady=(6, 0))
+        self._api_key_var = tk.StringVar(value=settings.api_key)
+        api_key_entry = tk.Entry(top, textvariable=self._api_key_var, show="•", width=26)
+        api_key_entry.grid(row=row + 3, column=1, sticky="w", padx=(0, 16), pady=(6, 0))
+        api_key_entry.bind("<Return>", lambda _event: self._apply_speech())
+        api_key_entry.bind("<FocusOut>", lambda _event: self._apply_speech())
+
+        tk.Label(top, text="개선 문장을 OpenAI(gpt-4o-mini-tts)로 읽음 · 문장당 약 $0.0015\n"
+                           "키는 speech.json 에 저장 (권한 0600)",
+                 fg="gray55", justify="left").grid(row=row + 4, column=0, columnspan=2,
+                                                   sticky="w", padx=16, pady=(4, 0))
+        return row + 5
 
     def _raise_when_mapped(self, event: tk.Event) -> None:
         # Child widgets share the toplevel's bindtag; react only to the window itself.
@@ -111,6 +151,7 @@ class SettingsDialog:
         self._apply()
         self._apply_model()
         self._apply_storage()
+        self._apply_speech()
         self._top.destroy()
 
     def _apply(self) -> None:
@@ -157,3 +198,13 @@ class SettingsDialog:
         if settings != self._storage_settings:
             self._storage_settings = settings
             self._on_storage_change(settings)
+
+    def _apply_speech(self) -> None:
+        if self._speech_settings is None:
+            return
+        settings = SpeechSettings(api_key=self._api_key_var.get().strip(),
+                                  voice=self._voice_var.get(),
+                                  auto_play=self._auto_play_var.get())
+        if settings != self._speech_settings:
+            self._speech_settings = settings
+            self._on_speech_change(settings)

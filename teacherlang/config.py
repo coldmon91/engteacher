@@ -52,6 +52,14 @@ class Config:
         return self.home / "notes.json"
 
     @property
+    def speech_settings_path(self) -> Path:
+        return self.home / "speech.json"
+
+    @property
+    def speech_cache_dir(self) -> Path:
+        return self.home / "speech-cache"
+
+    @property
     def error_log_path(self) -> Path:
         return self.home / "errors.log"
 

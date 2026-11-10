@@ -25,7 +25,7 @@ _BACKTICK_CODE = re.compile(
 # Claude Code repeats attributes on the closing tag, e.g. </pasted_content id="ab12">.
 _TAGGED_BLOCK = re.compile(r"<([A-Za-z][\w-]*)[^>]*>.*?</\1(?:\s[^>]*)?>", re.DOTALL)
 # Stand-in for a backtick span so the sentence keeps its shape, e.g. "remove the {A} section".
-_PLACEHOLDER = re.compile(r"\{[A-Z]+\}")
+PLACEHOLDER = re.compile(r"\{[A-Z]+\}")
 _URL = re.compile(r"https?://\S+")
 _MENTION_OR_PATH = re.compile(r"(?<!\S)(?:@|~/|\./|/)[\w./-]*[\w/]")
 _HANGUL_SYLLABLE = re.compile(r"[가-힣]")
@@ -94,7 +94,7 @@ def strip_non_prose(prompt: str, placeholders: CodePlaceholders | None = None) -
 
 
 def detect_language(text: str) -> Language | None:
-    text = _PLACEHOLDER.sub(" ", text)
+    text = PLACEHOLDER.sub(" ", text)
     hangul_count = len(_HANGUL_SYLLABLE.findall(text))
     english_words = _LATIN_WORD.findall(text)
     if hangul_count >= MIN_HANGUL_SYLLABLES:

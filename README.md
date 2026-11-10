@@ -83,9 +83,10 @@ bin/teacherlang-gui --topmost --font-size 16   # 이번 실행만 저장된 설�
   - 글자 크기 (9 ~ 32)
   - 튜터 제공자·모델: 목록(`haiku` / `sonnet` / `opus` / `fable`)에서 선택하거나 전체 모델 이름 입력
   - 기록 보관기간 (0 ~ 365일, 기본 14일, 0이면 삭제 안 함)
-- 화면 설정은 `$TEACHERLANG_HOME/gui.json`, 모델 설정은 `$TEACHERLANG_HOME/model.json`, 보관기간은 `$TEACHERLANG_HOME/storage.json` 에 저장되어 다음 실행에도 유지
+  - 음성: 새 기록 자동 재생, 음성 선택, OpenAI API 키 (macOS에서만 표시)
+- 화면 설정은 `$TEACHERLANG_HOME/gui.json`, 모델 설정은 `$TEACHERLANG_HOME/model.json`, 보관기간은 `$TEACHERLANG_HOME/storage.json`, 음성 설정은 `$TEACHERLANG_HOME/speech.json` 에 저장되어 다음 실행에도 유지
 - 모델 변경은 hook이 매 입력마다 `model.json` 을 읽으므로 다음 입력부터 적용 (Claude Code 재시작 불필요)
-- 화면: 위쪽 줄(`전체` `노트` 탭, `내보내기`, `☆`, `⚙`), 카드, 아래쪽 줄(`‹ 20 / 20 ›`, `최신`)
+- 화면: 위쪽 줄(`전체` `노트` 탭, `듣기`, `내보내기`, `☆`, `⚙`), 카드, 아래쪽 줄(`‹ 20 / 20 ›`, `최신`)
   - 테두리 없는 텍스트 버튼. 마우스를 올리면 강조 색, 쓸 수 없으면 흐리게 표시
   - macOS에서는 시스템 배경·글자 색을 따라 다크 모드에서도 어둡게 표시
   - 상태줄 없음. 기록·노트 파일을 읽지 못할 때만 아래쪽에 빨간 안내 줄 표시
@@ -106,6 +107,15 @@ bin/teacherlang-gui --topmost --font-size 16   # 이번 실행만 저장된 설�
     - `원문:`·`개선:` 라벨은 일반 글씨, 개선 문장은 굵게 표시. 순수 Markdown으로 내보내므로 GUI의 라벨 크기·색상은 포함하지 않음
     - 누를 때 `notes.json` 을 다시 읽으므로 다른 창에서 저장한 카드도 포함
     - 한 번 쓰고 끝나는 사본. 이후 저장한 카드를 반영하려면 다시 내보내기 (같은 파일이면 교체 확인 후 덮어씀)
+- 개선 문장 듣기: 위쪽 `듣기` 버튼 (macOS 전용, OpenAI `gpt-4o-mini-tts`)
+  - 처음 쓸 때 설정 창에 OpenAI API 키 입력 (ChatGPT 구독과 별개인 API 키)
+  - 버튼: `듣기` → `불러오는 중…` → 재생 중 `중지` (누르면 멈춤). 단축키 없음
+  - 코드 자리표시자(`{A}` 등)는 빼고 읽음. 읽을 문장이 없는 카드는 버튼 비활성
+  - 다른 카드로 이동하거나 모드를 바꾸면 재생 중지
+  - 새 기록 자동 재생 (설정, 기본 꺼짐): 최신 카드를 보는 중 새 기록이 도착하면 그 문장을 읽음. 노트 모드·시작 시 불러온 기록은 제외
+  - 오류: 버튼으로 재생하면 대화상자, 자동 재생이면 아래쪽 빨간 안내 줄 (다음 재생 성공 시 사라짐)
+  - 만든 음성은 `$TEACHERLANG_HOME/speech-cache/` 에 MP3로 보관해 다시 들을 때 요청 없음. 30일 넘게 안 들은 파일은 GUI 시작 시 삭제
+  - 음성 설정 파일 `speech.json` 에 API 키가 평문으로 저장됨 (권한 `0600`)
 - 종료: 창 닫기, `Cmd-W`, 실행한 터미널에서 `Ctrl-C`
 
 ## Dock 이름·아이콘 (`TeacherLang.app`)
@@ -142,6 +152,7 @@ open ~/Applications/TeacherLang.app
 
 - 비용·지연 (claude): 입력 1건당 Haiku 호출 1회, 약 6 ~ 11초, list price 기준 약 $0.004 (Claude 구독 사용량에서 차감)
 - 비용·지연 (codex): `gpt-6-luna` 기준 약 7 ~ 12초, 1건당 약 1.4k input tokens (기본 prompt·skills 목록·tool 정의 제외, ChatGPT 구독 사용량에서 차감)
+- 비용 (음성): 처음 듣는 문장마다 OpenAI 요청 1회. `gpt-4o-mini-tts` 오디오 출력 100만 토큰당 $12 (2026-10-12 OpenAI 가격표), 100자 안팎 문장 1개 약 $0.0015 추정. 보관본 재생은 무료
 - 기록 파일: 원문 프롬프트가 저장되며 모든 파일 권한 `0600` (1건 약 1.2KB, gzip 압축 시 약 1/3.7)
   - `lessons.jsonl`: 오늘 기록 (평문 JSONL)
   - `lessons-YYYY-MM-DD.jsonl.gz`: 지난 날짜 보관본. 시계가 되돌아가 같은 날짜가 다시 보관되면 `lessons-YYYY-MM-DD.2.jsonl.gz`
@@ -164,6 +175,21 @@ open ~/Applications/TeacherLang.app
 ```sh
 python3 -m unittest discover -s tests -t .
 ```
+
+## 빌드 (`build.py`)
+
+Python 버전 확인 → 구문 검사 → 테스트 → `TeacherLang.app` 생성을 순서대로 실행. 한 단계라도 실패하면 중단 (exit 1).
+
+```sh
+./build.py --dry-run          # 검사·테스트 후 앱은 diff만 확인
+./build.py                    # 기존 앱이 있으면 diff 확인 후 교체
+./build.py -y --out /tmp/TeacherLang.app
+./build.py --skip-tests --skip-app   # 검사만
+```
+
+- 실행한 Python 으로 테스트하고 앱을 만듦. 다른 Python 은 `/opt/homebrew/bin/python3 build.py` 처럼 지정
+- 구문 검사는 메모리에서만 컴파일 (`.pyc` 생성 없음)
+- `--out`·`--dry-run`·`-y` 는 `bin/teacherlang-make-app` 에 그대로 전달
 
 ## 모델 설정 파일 (`model.json`)
 

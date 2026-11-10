@@ -48,6 +48,8 @@ def _confirm_replace(app_path: Path, assume_yes: bool) -> bool:
     print(diff if diff else "Info.plist and launcher are unchanged.")
     if assume_yes:
         return True
+    if not sys.stdin.isatty():
+        raise AppBundleError("not an interactive terminal; rerun with --yes to replace")
     return input("Replace? [y/N] ").strip().lower() == "y"
 
 
